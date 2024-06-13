@@ -14,12 +14,12 @@ TAGS_POSES_COMP = {
     6: (32, -117.5)
 }
 
-TO_PLOT = True
+TO_PLOT = False
 
 import math
 import numpy as np
 import cv2
-from spatialmath import *
+# from spatialmath import *
 import matplotlib.pyplot as plt
 
 def euler_to_rotation_matrix(roll, pitch, yaw):
@@ -104,15 +104,15 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
         accumulated_orientation += camera_orientation_world
         valid_marker_count += 1
 
-        print(f"Camera Position (World): {camera_position_world}")
-        print(f"Camera Orientation (World): {camera_orientation_world}")
+        # print(f"Camera Position (World): {camera_position_world}")
+        # print(f"Camera Orientation (World): {camera_orientation_world}")
 
     if valid_marker_count > 0:
         average_position = accumulated_position / valid_marker_count
         average_orientation = accumulated_orientation / valid_marker_count
 
-        print(f"Average Camera Position (World): {average_position}")
-        print(f"Average Camera Orientation (World): {average_orientation}")
+        # print(f"Average Camera Position (World): {average_position}")
+        # print(f"Average Camera Orientation (World): {average_orientation}")
 
     return average_position[0:2], average_orientation[2]
 
