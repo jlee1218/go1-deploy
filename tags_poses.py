@@ -58,7 +58,7 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
     valid_marker_count = 0
 
     average_position = np.zeros(2)
-    average_orientation = np.zeros(1)
+    average_yaw = np.zeros(1)
 
     # PLOTS
     if TO_PLOT:
@@ -123,12 +123,12 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
 
     if valid_marker_count > 0:
         average_position = accumulated_position / valid_marker_count
-        average_orientation = accumulated_orientation / valid_marker_count
+        average_yaw = accumulated_orientation / valid_marker_count
 
         print(f"Average Camera Position (World): {average_position}")
-        print(f"Average Camera Orientation (World): {average_orientation}")
+        print(f"Average Camera Orientation (World): {average_yaw}")
 
-    return average_position, average_orientation
+    return average_position, average_yaw
 
 
 def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_pose):
@@ -187,6 +187,80 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
 
     return updated_obstacles_poses
 
+
+def estimate_robot_pose_from_tags_3D(tags_poses: dict):
+    accumulated_position = np.zeros(2)
+    accumulated_orientation = np.zeros(1)
+    valid_marker_count = 0
+
+    average_position = np.zeros(2)
+    average_yaw = np.zeros(1)
+
+    # PLOTS
+    if TO_PLOT:
+        T_w = SE3()
+        T_w.plot(frame='w', color='black')
+
+    for tag_id, tag_pose in tags_poses.items():
+        if tag_id not in TAGS_POSES.keys():
+            continue
+
+        known_pose = TAGS_POSES[tag_id]
+        t_wm = np.append(known_pose[0:2], 0)
+        y_wm = known_pose[2]
+        R_wm = euler_to_rotation_matrix(0,0, y_wm)
+
+        # Convert the rotation vector to a rotation matrix
+        tvec, rvec = tag_pose
+        t_cm = tvec[0]  # Translation vector from camera to marker
+        R_cm = cv2.Rodrigues(tag_pose[1])[0]
+
+        # Rotation matrix from camera to marker
+        R_mc = R_cm.T
+
+        R_wc = R_wm @ R_mc
+
+        # Marker to camera
+        # t_mc = -R_mc @ t_cm
+        t_mc = t_cm
+
+        # Camera pose in the world coordinate system
+        R_wc = R_wm @ R_mc
+        t_wc = R_wm @ t_mc + t_wm
+
+        # PLOTS
+        if TO_PLOT:
+            T_wm = SE3.Rt(R_wm, t_wm)
+            T_wm.plot(frame='T-wm', color='black')
+
+            T_cm = SE3.Rt(R_cm, t_cm)
+            T_cm.plot(frame='T-cm')
+
+            T_wc = SE3.Rt(R_wc, t_wc)
+            T_wc.plot(frame='T-wc', color='red')
+
+        if TO_PLOT:
+            plt.show(block=False)
+
+        # Convert the rotation matrix to Euler angles
+        camera_yaw_world = rotation_matrix_to_euler(R_wc)[2]
+        camera_position_world = t_wc[0:2]
+
+        accumulated_position += camera_position_world
+        accumulated_orientation += camera_yaw_world
+        valid_marker_count += 1
+
+        # print(f"Camera Position (World): {camera_position_world}")
+        # print(f"Camera Orientation (World): {camera_yaw_world}")
+
+    if valid_marker_count > 0:
+        average_position = accumulated_position / valid_marker_count
+        average_yaw = accumulated_orientation / valid_marker_count
+
+        print(f"Average Camera Position (World): {average_position}")
+        print(f"Average Camera Orientation (World): {average_yaw}")
+
+    return average_position, average_yaw
 
 def test_robot_pose():
     # tags poses measured by camera
