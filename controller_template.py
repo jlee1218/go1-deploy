@@ -9,7 +9,7 @@ import time
 import numpy as np
 import cv2
 import pyrealsense2 as rs
-from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_pose_from_tags
+from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_pose_from_tags, rotation_matrix_to_euler
 
 CONNECT_SERVER = False  # False for local tests, True for deployment
 
@@ -173,20 +173,33 @@ try:
                 # Estimate pose of each marker
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
 
-                detected_april_tags = {key[0]: [val1, val2] for key, val1, val2 in zip(detected_ids, tvecs, rvecs)}
+                for id, tvec, rvec in zip(detected_ids, tvecs, rvecs):
+                    x = tvec[0][2]
+                    y = -tvec[0][0]
+                    theta = rvec[0][1]
 
-                pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
-                print(f'Pose: {pose:10<} | {yaw:5<}')
+                    if(id == 4 or id == 8):
+                        y = -y
+                        theta = -theta
+
+                # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
+                detected_april_tags = {key[0]: [tvec[0][2], tvec[0][0], -rvec[0][2]] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
+                print(detected_april_tags)
+
+                # pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
+                # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
 
                 # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
-                #     # # Draw the marker
-                #     # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
-                #     # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+                    # # Draw the marker
+                    # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
+                    # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
 
-                #     # Print the pose of the marker
-                #     print(f"Detected ID: {id}")
-                #     print(f"Translation Vector (tvec): {tvec}")
-                #     print(f"Rotation Vector (rvec): {rvec}")
+                    # Print the pose of the marker
+                    # print(f"Detected ID: {id}")
+                    # print(f"Translation Vector (tvec): {tvec}")
+                    # print(f"Rotation Vector (rvec): {rvec}")
+                    
+                    # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
 
 
             # --- Compute control ---
