@@ -11,7 +11,7 @@ import cv2
 import pyrealsense2 as rs
 
 
-CONNECT_SERVER = True  # False for local tests, True for deployment
+CONNECT_SERVER = False  # False for local tests, True for deployment
 
 
 # ----------- DO NOT CHANGE THIS PART -----------
@@ -80,7 +80,16 @@ config.enable_stream(rs.stream.color, image_width, image_height, rs.format.bgr8,
 # config.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, 200)
 
 # Start streaming
-pipeline.start(config)
+profile = pipeline.start(config)
+
+intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+camera_matrix = np.array([[intr.fx, 0, intr.ppx],
+                          [0, intr.fy, intr.ppy],
+                          [0, 0, 1]])
+dist_coeffs = np.zeros((5, 1))  # Assuming no lens distortion
+
+marker_length = 0.147
+
 
 # ----------- DO NOT CHANGE THIS PART -----------
 
@@ -127,7 +136,18 @@ try:
             frames = pipeline.wait_for_frames()
             depth_frame = frames.get_depth_frame()
             color_frame = frames.get_color_frame()
-            if not depth_frame or not color_frame:
+
+            # Get IMU Frames
+            # for frame in frames: 
+            #     if frame.is_motion_frame():
+            #         imu_data = frame.as_motion_frame().get_motion_data()
+            #         if frame.get_profile().stream_type() == rs.stream.accel:
+            #             print("Accelerometer data:", imu_data)
+            #         elif frame.get_profile().stream_type() == rs.stream.gyro:
+            #             print("Gyroscope data:", imu_data)
+
+
+            if not depth_frame or not color_frame: 
                 continue
 
             if RECORD:
@@ -137,6 +157,12 @@ try:
             depth_image = np.asanyarray(depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
 
+            # # Get IMU data
+            # accel_data = accel_frame.as_motion_frame().get_motion_data()
+            # gyro_data = gyro_frame.as_motion_frame().get_motion_data()
+            # print(f"Accelerometer: {accel_frame}")
+            # print(f"Gyroscope: {gyro_frame}")
+
             # --------------- CHANGE THIS PART ---------------
 
             # --- Detect markers ---
@@ -145,7 +171,29 @@ try:
             grey_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
             (detected_corners, detected_ids, rejected) = cv2.aruco.detectMarkers(grey_frame, aruco_dict, parameters=arucoParams)
 
-            print(f"Tags in FOV: {detected_ids}")
+            # print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
+            
+
+            if detected_ids is not None:
+                # Estimate pose of each marker
+                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
+                
+                detected_april_tags = {key[0]: [val1, val2] for key, val1, val2 in zip(detected_ids, tvecs, rvecs)}
+
+                print(detected_april_tags)
+
+                # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
+                #     # # Draw the marker
+                #     # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
+                #     # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+
+                #     # Print the pose of the marker
+                #     print(f"Detected ID: {id}")
+                #     print(f"Translation Vector (tvec): {tvec}")
+                #     print(f"Rotation Vector (rvec): {rvec}")
+
+
+
 
             # --- Compute control ---
 
