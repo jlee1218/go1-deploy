@@ -84,16 +84,17 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
         t_wc = R_wm @ t_mc + t_wm
 
         # PLOTS
-        T_wm = SE3.Rt(R_wm, t_wm)
-        T_wm.plot(frame='T-wm', color='black')
+        if TO_PLOT:
+            T_wm = SE3.Rt(R_wm, t_wm)
+            T_wm.plot(frame='T-wm', color='black')
 
-        T_cm = SE3.Rt(R_cm, t_cm)
-        T_cm.plot(frame='T-cm')
+            T_cm = SE3.Rt(R_cm, t_cm)
+            T_cm.plot(frame='T-cm')
 
-        T_wc = SE3.Rt(R_wc, t_wc)
-        T_wc.plot(frame='T-wc')
+            T_wc = SE3.Rt(R_wc, t_wc)
+            T_wc.plot(frame='T-wc')
 
-        plt.show()
+            plt.show()
 
         # Convert the rotation matrix to Euler angles
         camera_orientation_world = rotation_matrix_to_euler(R_wc)
@@ -113,7 +114,7 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
         print(f"Average Camera Position (World): {average_position}")
         print(f"Average Camera Orientation (World): {average_orientation}")
 
-    return average_position, average_orientation
+    return average_position[0:2], average_orientation[2]
 
 
 def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_pose):
