@@ -171,20 +171,28 @@ try:
             grey_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
             (detected_corners, detected_ids, rejected) = cv2.aruco.detectMarkers(grey_frame, aruco_dict, parameters=arucoParams)
 
-            print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
+            # print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
+            
 
             if detected_ids is not None:
                 # Estimate pose of each marker
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
+                
+                detected_april_tags = {key[0]: [val1, val2] for key, val1, val2 in zip(detected_ids, tvecs, rvecs)}
 
-                for rvec, tvec in zip(rvecs, tvecs):
-                    # # Draw the marker
-                    # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
-                    # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+                print(detected_april_tags)
 
-                    # Print the pose of the marker
-                    print(f"Translation Vector (tvec): {tvec}")
-                    print(f"Rotation Vector (rvec): {rvec}")
+                # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
+                #     # # Draw the marker
+                #     # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
+                #     # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+
+                #     # Print the pose of the marker
+                #     print(f"Detected ID: {id}")
+                #     print(f"Translation Vector (tvec): {tvec}")
+                #     print(f"Rotation Vector (rvec): {rvec}")
+
+
 
 
             # --- Compute control ---
