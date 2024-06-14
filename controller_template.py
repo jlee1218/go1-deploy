@@ -30,6 +30,13 @@ Methodology:
 
 NOTE: add theta later? 
 """
+def is_within_goal_radius(robot_x, robot_y, goal_x, goal_y, r=0.01):
+    # Calculate the Euclidean distance 
+    distance = math.sqrt((robot_x - goal_x) ** 2 + (robot_y - goal_y) ** 2)
+    
+    # Check if the distance is less than or equal to the radius
+    return distance <= r
+
 class LocalizationFilter_theta:
     def __init__(self, init_robot_position, 
                 #  known_tag_ids, init_known_tag_positions, 
@@ -677,7 +684,7 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
 ################################### OUR CODE ABOVE ############################
 
 
-CONNECT_SERVER = False  # False for local tests, True for deployment
+CONNECT_SERVER = True  # False for local tests, True for deployment
 
 # ----------- DO NOT CHANGE THIS PART -----------
 
@@ -936,6 +943,9 @@ try:
 
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
+            if is_within_goal_radius(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0) and counter > 500:
+                task_complete = True 
+                continue 
 
             # if pose is not None:
             #     print(f'OBS: \t{yaw} \t\tFILT: \t{CURRENT_POSE[2]}')
