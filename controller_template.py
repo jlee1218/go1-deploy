@@ -313,12 +313,20 @@ class Node:
         self.y = y
         self.parent = None
 
+class Node:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.parent = None
+
 class RRT:
     def __init__(self, start, goal, obstacle_list, rand_area, expand_dis=1.0, goal_sample_rate=5, max_iter=3000):
         self.start = Node(start[0], start[1])
         self.end = Node(goal[0], goal[1])
-        self.min_rand = rand_area[0]
-        self.max_rand = rand_area[1]
+        self.min_rand_x = rand_area[0][0]
+        self.min_rand_y = rand_area[1][0]
+        self.max_rand_x = rand_area[0][1]
+        self.max_rand_y = rand_area[1][1]
         self.expand_dis = expand_dis
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
@@ -357,7 +365,7 @@ class RRT:
 
     def get_random_node(self):
         if random.randint(0, 100) > self.goal_sample_rate:
-            rnd = Node(random.uniform(self.min_rand, self.max_rand), random.uniform(self.min_rand, self.max_rand))
+            rnd = Node(random.uniform(self.min_rand_x, self.max_rand_x), random.uniform(self.min_rand_y, self.max_rand_y))
         else:
             rnd = Node(self.end.x, self.end.y)
         return rnd
@@ -368,26 +376,27 @@ class RRT:
         return min_index
 
     def check_collision_single_point(self, x, y):
-        if x < self.min_rand:
+        if x < self.min_rand_x:
             return True
-        elif x > self.max_rand:
+        elif x > self.max_rand_x:
             return True
-        if y < self.min_rand:
+        if y < self.min_rand_y:
             return True
-        elif y > self.max_rand:
+        elif y > self.max_rand_y:
             return True
 
         for (ox, oy, size) in self.obstacle_list:
             dx = ox - x
             dy = oy - y
             d = dx * dx + dy * dy
-            if d <= size ** 2:
+            #if d <= size ** 2:
+            if d <= size:
                 return True # in collision
         return False # Safe
 
     def check_collision(self, start_node, end_node):
 
-        discretization_constant = 0.1
+        discretization_constant = 0.05
         distance = np.sqrt((start_node.x - end_node.x)**2 + (start_node.y - end_node.y)**2)
         steps = np.arange(0, distance, step=discretization_constant)
         num_steps = len(steps)
@@ -446,7 +455,7 @@ def rrt_planning(robot_x, robot_y, robot_theta, goal_x, goal_y, obstacles=None):
         obstacles = []
 
     rrt = RRT(start=[robot_x, robot_y], goal=[goal_x, goal_y],
-              obstacle_list=obstacles, rand_area=[-2, 15])
+              obstacle_list=obstacles, rand_area=[[-0.58, 2.93], [-1.175, 1.175]])
     
     path = rrt.planning()
     
@@ -457,6 +466,7 @@ def rrt_planning(robot_x, robot_y, robot_theta, goal_x, goal_y, obstacles=None):
     velocities = calculate_velocities(path, robot_theta)
 
     return velocities, path # Velocities (x, y, angular)
+
 
 ################################### OUR CODE ABOVE ############################
 
@@ -683,18 +693,30 @@ try:
                 obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
                 print(obstacles_position_dict)
             
-            if counter > 10000: 
+            if counter > 50: # number of steps before compute control
                 # --- Compute control ---
                 if counter % 1 == 0:
-                    random.seed(13) # to prevent too much jitteriness
-                    current_plan_counter = 0 
-                    velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
-                                                    robot_y=CURRENT_POSE[1], 
-                                                    robot_theta=CURRENT_POSE[2],
-                                                    goal_x=1, 
-                                                    goal_y=1, 
-                                                    obstacles=obstacles_position_dict.values())
-                
+                    obstacle_radius = 0.2
+                    for i in range(10):
+                        random.seed(13) # to prevent too much jitteriness
+                        current_plan_counter = 0 
+                        obstacles = obstacles_position_dict.values()
+                        obstacles = [(x, y, obstacle_radius) for x, y in obstacles]
+                        velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
+                                                        robot_y=CURRENT_POSE[1], 
+                                                        robot_theta=CURRENT_POSE[2],
+                                                        goal_x=1, 
+                                                        goal_y=1, 
+                                                        obstacles=obstacles_position_dict.values())
+                        if len(path) == 0:
+                            # path not found - decrease obstacle size 
+                            obstacle_radius = obstacle_radius * 0.9 
+                        else: 
+                            break 
+                            
+        
+
+
 
                 x_velocity = velocities[current_plan_counter][0]
                 y_velocity = velocities[current_plan_counter][1]
