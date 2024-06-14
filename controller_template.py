@@ -479,6 +479,12 @@ def rrt_planning(robot_x, robot_y, robot_theta, goal_x, goal_y, obstacles=None):
 
     return velocities, path # Velocities (x, y, angular)
 
+def is_within_goal_radius(robot_x, robot_y, goal_x, goal_y, r=0.05):
+    # Calculate the Euclidean distance 
+    distance = math.sqrt((robot_x - goal_x) ** 2 + (robot_y - goal_y) ** 2)
+    
+    # Check if the distance is less than or equal to the radius
+    return distance <= r
 
 ################################### OUR CODE ABOVE ############################
 
@@ -699,45 +705,52 @@ try:
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
             print(f"Current Pose: {CURRENT_POSE}")
-            
-            R_wc = euler_to_rotation_matrix(0.0, 0.0, CURRENT_POSE[2])
-            if detected_ids is not None:
-                obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
-                print(obstacles_position_dict)
-            
-            if counter > 50: # number of steps before compute control
-                # --- Compute control ---
-                if counter % 1 == 0:
-                    obstacle_radius = 0.2
-                    use_potential = False 
-                    for i in range(10):
-                        random.seed(13) # to prevent too much jitteriness
-                        current_plan_counter = 0 
-                        obstacles = obstacles_position_dict.values()
-                        obstacles = [(x, y, obstacle_radius) for x, y in obstacles]
-                        velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
-                                                        robot_y=CURRENT_POSE[1], 
-                                                        robot_theta=CURRENT_POSE[2],
-                                                        goal_x=0, 
-                                                        goal_y=0, 
-                                                        obstacles=obstacles_position_dict.values())
-                        if len(path) == 0:
-                            # path not found - decrease obstacle size 
-                            obstacle_radius = obstacle_radius * 0.9 
-                        else: 
-                            break 
-                if len(velocities) == 0 or use_potential: 
-                    use_potential = True   
-                    potential = potentialField()
-                    print("No path found, use direct velocity")
-                    x_velocity, y_velocity, r_velocity = potential.get_velocity(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0, obstacles_position_dict.values(), CURRENT_POSE[2])
-                else: 
-                    x_velocity = velocities[current_plan_counter][0]
-                    y_velocity = velocities[current_plan_counter][1]
-                    r_velocity = velocities[current_plan_counter][2]
-                    current_plan_counter += 1
 
-                print(f"Velocities: {x_velocity}, {y_velocity}, {r_velocity}")
+            if not is_within_goal_radius(CURRENT_POSE[0], CURRENT_POSE[1], goal_x=0, goal_y=0):
+            
+                R_wc = euler_to_rotation_matrix(0.0, 0.0, CURRENT_POSE[2])
+                if detected_ids is not None:
+                    obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
+                    print(obstacles_position_dict)
+            
+                if counter > 50: # number of steps before compute control
+                    # --- Compute control ---
+                    if counter % 1 == 0:
+                        obstacle_radius = 0.2
+                        use_potential = False 
+                        for i in range(10):
+                            random.seed(13) # to prevent too much jitteriness
+                            current_plan_counter = 0 
+                            obstacles = obstacles_position_dict.values()
+                            obstacles = [(x, y, obstacle_radius) for x, y in obstacles]
+                            velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
+                                                            robot_y=CURRENT_POSE[1], 
+                                                            robot_theta=CURRENT_POSE[2],
+                                                            goal_x=0, 
+                                                            goal_y=0, 
+                                                            obstacles=obstacles_position_dict.values())
+                            if len(path) == 0:
+                                # path not found - decrease obstacle size 
+                                obstacle_radius = obstacle_radius * 0.9 
+                            else: 
+                                break 
+                    if len(velocities) == 0 or use_potential: 
+                        use_potential = True   
+                        potential = potentialField()
+                        print("No path found, use direct velocity")
+                        x_velocity, y_velocity, r_velocity = potential.get_velocity(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0, obstacles_position_dict.values(), CURRENT_POSE[2])
+                    else: 
+                        x_velocity = velocities[current_plan_counter][0]
+                        y_velocity = velocities[current_plan_counter][1]
+                        r_velocity = velocities[current_plan_counter][2]
+                        current_plan_counter += 1
+
+                    print(f"Velocities: {x_velocity}, {y_velocity}, {r_velocity}")
+            else:
+                x_velocity = 0
+                y_velocity = 0
+                r_velocity = 0
+                task_complete = True
 
             # --- Send control to the walking policy ---
             send(s, x_velocity, y_velocity, r_velocity)
