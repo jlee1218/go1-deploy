@@ -17,7 +17,7 @@ from copy import deepcopy
 from scipy.stats import multivariate_normal
 import math 
 
-import spatialmath as sm  # TODO: REMOVE
+# import spatialmath as sm  # TODO: REMOVE
 import matplotlib.pyplot as plt
 
 """
@@ -325,7 +325,7 @@ class Node:
         self.parent = None
 
 class RRT:
-    def __init__(self, start, goal, obstacle_list, rand_area, expand_dis=1.0, goal_sample_rate=5, max_iter=3000):
+    def __init__(self, start, goal, obstacle_list, rand_area, expand_dis=0.1, goal_sample_rate=5, max_iter=3000):
         self.start = Node(start[0], start[1])
         self.end = Node(goal[0], goal[1])
         self.min_rand_x = rand_area[0][0]
@@ -870,8 +870,8 @@ try:
                         y = -y
                         theta = -theta +np.pi
 
-                if abs(theta) > np.deg2rad(30):
-                    continue
+                # if abs(theta) > np.deg2rad(30):
+                #     continue
 
                 # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
                 detected_april_tags = {id[0]: [[x,y],[theta]]}
@@ -908,10 +908,10 @@ try:
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
 
-            if pose is not None:
-                print(f"Current Pose: {CURRENT_POSE}\t Obs: {pose} \t {yaw}")
-            else:
-                print(f"Current Pose: {CURRENT_POSE}")
+            # if pose is not None:
+            #     print(f"Current Pose: {CURRENT_POSE}\t Obs: {pose} \t {yaw}")
+            # else:
+            #     print(f"Current Pose: {CURRENT_POSE}")
             
             R_wc = euler_to_rotation_matrix(0.0, 0.0, CURRENT_POSE[2])
             if detected_ids is not None:
@@ -920,12 +920,12 @@ try:
                 # print(obstacles_position_dict)
                 ...
             
-            if counter > 50: # number of steps before compute control
+            if counter > 5: # number of steps before compute control
                 # --- Compute control ---
-                if counter % 1 == 0:
+                if False: #counter % 1 == 0:
                     obstacle_radius = 0.2
                     use_potential = False 
-                    for i in range(10):
+                    for i in range(2):
                         random.seed(13) # to prevent too much jitteriness
                         current_plan_counter = 0 
                         obstacles = obstacles_position_dict.values()
@@ -941,19 +941,20 @@ try:
                             obstacle_radius = obstacle_radius * 0.9 
                         else: 
                             break 
-                if len(velocities) == 0 or use_potential: 
+                if True: #len(velocities) == 0 or use_potential: 
                     use_potential = True   
                     potential = potentialField()
                     print("No path found, use direct velocity")
                     x_velocity, y_velocity, r_velocity = potential.get_velocity(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0, obstacles_position_dict.values(), CURRENT_POSE[2])
+                    print(f'x velocity: {x_velocity},  y velocity {y_velocity}, rotational {r_velocity}')
                 else: 
                     x_velocity = velocities[current_plan_counter][0]
                     y_velocity = velocities[current_plan_counter][1]
                     r_velocity = velocities[current_plan_counter][2]
                     current_plan_counter += 1
 
-                # print(f"Velocities: {x_velocity}, {y_velocity}, {r_velocity}")
-                ...
+                print(f"Velocities: \t {x_velocity}, \t {y_velocity}, \t {r_velocity}")
+            #     ...
 
             # --- Send control to the walking policy ---
             send(s, x_velocity, y_velocity, r_velocity)
