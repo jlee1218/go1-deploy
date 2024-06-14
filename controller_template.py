@@ -18,6 +18,8 @@ from copy import deepcopy
 from scipy.stats import multivariate_normal
 import math 
 
+import matplotlib.pyplot as plt
+
 """
 Methodology: 
 1. Initialize particles 
@@ -95,7 +97,7 @@ class LocalizationFilter_theta:
         """
 
         all_noise = np.random.multivariate_normal(self.motion_mean, self.motion_cov, size=self.num_particles)
-        self.particles = np.array(self.particles) + delta_action.reshape((1, -1)) + all_noise
+        self.particles = np.array(self.particles) + np.array(delta_action).reshape((1, -1)) + all_noise
 
         self.particles[:, 2] = self.particles[:, 2] % (2*np.pi)
 
@@ -297,6 +299,13 @@ class potentialField:
         return lim_vx, lim_vy, limit_angular_vel
 
 
+def visualize_particles(particles, particle_weights):
+    plt.figure()
+    plt.title("particles")
+    plt.scatter(particles[:, 0], particles[:, 1], c=particle_weights)
+    plt.pause(0.5)
+    plt.close()
+    
 
 class Node:
     def __init__(self, x, y):
@@ -569,6 +578,10 @@ try:
         x_velocity = 0.0
         y_velocity = 0.0
         r_velocity = 0.0
+        velocities = [[0, 0, 0]] * 100000
+        pose = None 
+        yaw = None 
+        current_plan_counter = 0 
         R_wc = np.eye(3)
         # main control loop:
         counter = 0 
@@ -634,7 +647,7 @@ try:
                 detected_april_tags = {id[0]: [[x,y],[theta]]}
                 # print(detected_april_tags)
 
-                # pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
+                pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
                 # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
 
                 # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
@@ -657,6 +670,9 @@ try:
 
             delta_action = [x_velocity*MIN_LOOP_DURATION, y_velocity*MIN_LOOP_DURATION, r_velocity*MIN_LOOP_DURATION]
             particleFilterTheta.predict_step(delta_action=delta_action)
+            if pose is not None: 
+                particleFilterTheta.update_step(estimated_robot_position=np.array([pose[0], pose[1], yaw]))
+            visualize_particles(particles=particleFilterTheta.particles, particle_weights=particleFilterTheta.particle_weights)
 
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
@@ -667,10 +683,11 @@ try:
                 obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
                 print(obstacles_position_dict)
             
-            if counter > 50: 
+            if counter > 10000: 
                 # --- Compute control ---
-                if counter % 10 == 0:
+                if counter % 1 == 0:
                     random.seed(13) # to prevent too much jitteriness
+                    current_plan_counter = 0 
                     velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
                                                     robot_y=CURRENT_POSE[1], 
                                                     robot_theta=CURRENT_POSE[2],
@@ -679,9 +696,10 @@ try:
                                                     obstacles=obstacles_position_dict.values())
                 
 
-                x_velocity = velocities[0][0]
-                y_velocity = velocities[0][1]
-                r_velocity = velocities[0][2]
+                x_velocity = velocities[current_plan_counter][0]
+                y_velocity = velocities[current_plan_counter][1]
+                r_velocity = velocities[current_plan_counter][2]
+                current_plan_counter += 1
 
                 print(f"Velocities: {x_velocity}, {y_velocity}, {r_velocity}")
 

@@ -19,6 +19,7 @@ TAGS_POSES = {
     6: (0.32, -1.175, np.pi/2),
     # 9: (1, 1,  3*np.pi/2)
     # 9: (1, -1,  np.pi/2)
+    9: (-0.58, 0,  np.pi/2)
 
 }
 
@@ -146,7 +147,7 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
 
     # Camera pose in the world frame
     t_wc = np.append(robot_pose[0], 0)
-    R_wc = euler_to_rotation_matrix(0.0, 0.0, robot_pose[1][0])
+    R_wc = euler_to_rotation_matrix(0.0, 0.0, robot_pose[2])
 
     # PLOTS
     if TO_PLOT:
