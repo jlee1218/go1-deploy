@@ -9,7 +9,7 @@ import time
 import numpy as np
 import cv2
 import pyrealsense2 as rs
-from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_pose_from_tags, rotation_matrix_to_euler
+from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_pose_from_tags, rotation_matrix_to_euler, euler_to_rotation_matrix
 import numpy as np
 import random
 
@@ -569,7 +569,7 @@ try:
         x_velocity = 0.0
         y_velocity = 0.0
         r_velocity = 0.0
-
+        R_wc = np.eye(3)
         # main control loop:
         counter = 0 
         while not task_complete and not time.time() - start_time > TIMEOUT:
@@ -650,14 +650,19 @@ try:
                     # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
 
             # ---- FILTER STUFF ----
-            x_velocity_worldframe = x_velocity  
-            y_velocity_worldframe = y_velocity
+            world_frame_velocities = R_wc @ np.array([x_velocity, y_velocity, 0])
+            x_velocity_worldframe = world_frame_velocities[0]  
+            y_velocity_worldframe = world_frame_velocities[1]
             r_velocity_worldframe = r_velocity
+
             delta_action = [x_velocity*MIN_LOOP_DURATION, y_velocity*MIN_LOOP_DURATION, r_velocity*MIN_LOOP_DURATION]
             particleFilterTheta.predict_step(delta_action=delta_action)
 
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
+            print(f"Current Pose: {CURRENT_POSE}")
+            
+            R_wc = euler_to_rotation_matrix(0.0, 0.0, CURRENT_POSE[2])
             if detected_ids is not None:
                 obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
                 print(obstacles_position_dict)
@@ -677,6 +682,8 @@ try:
                 x_velocity = velocities[0][0]
                 y_velocity = velocities[0][1]
                 r_velocity = velocities[0][2]
+
+                print(f"Velocities: {x_velocity}, {y_velocity}, {r_velocity}")
 
             # --- Send control to the walking policy ---
             send(s, x_velocity, y_velocity, r_velocity)
