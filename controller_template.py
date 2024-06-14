@@ -660,6 +660,7 @@ SERVER_PORT = 9292
 
 # Maximum duration of the task (seconds):
 TIMEOUT = 1000000
+START_COUNT = 5
 
 # Minimum control loop duration:
 MIN_LOOP_DURATION = 0.1
@@ -853,6 +854,7 @@ try:
 
             # print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
 
+            detected_april_tags = {}
             if detected_ids is not None:
                 # Estimate pose of each marker
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
@@ -870,28 +872,16 @@ try:
                         y = -y
                         theta = -theta +np.pi
 
-                # if abs(theta) > np.deg2rad(30):
-                #     continue
+                    if abs(theta) > np.deg2rad(30):
+                        print('IGNORING TAG {id}')
+                        continue
 
-                # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
-                detected_april_tags = {id[0]: [[x,y],[theta]]}
-                # print(detected_april_tags)
+                    detected_april_tags[id[0]] = [[x,y],[theta]]
+                    # print(detected_april_tags)
 
                 pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
                 # pose = None  # TODO: remove
                 # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
-
-                # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
-                    # # Draw the marker
-                    # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
-                    # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
-
-                    # Print the pose of the marker
-                    # print(f"Detected ID: {id}")
-                    # print(f"Translation Vector (tvec): {tvec}")
-                    # print(f"Rotation Vector (rvec): {rvec}")
-                    
-                    # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
 
             # ---- FILTER STUFF ----
             world_frame_velocities = R_wc @ np.array([x_velocity, y_velocity, 0])
@@ -920,7 +910,7 @@ try:
                 # print(obstacles_position_dict)
                 ...
             
-            if counter > 5: # number of steps before compute control
+            if counter > START_COUNT: # number of steps before compute control
                 # --- Compute control ---
                 if False: #counter % 1 == 0:
                     obstacle_radius = 0.2
@@ -946,7 +936,10 @@ try:
                     potential = potentialField()
                     print("No path found, use direct velocity")
                     x_velocity, y_velocity, r_velocity = potential.get_velocity(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0, obstacles_position_dict.values(), CURRENT_POSE[2])
+                    
+                    v_robot = R_wc.T @ np.array([x_velocity, y_velocity, 0])
                     print(f'x velocity: {x_velocity},  y velocity {y_velocity}, rotational {r_velocity}')
+
                 else: 
                     x_velocity = velocities[current_plan_counter][0]
                     y_velocity = velocities[current_plan_counter][1]
