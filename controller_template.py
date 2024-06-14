@@ -9,7 +9,8 @@ import time
 import numpy as np
 import cv2
 import pyrealsense2 as rs
-
+import numpy as np
+import random
 
 CONNECT_SERVER = False  # False for local tests, True for deployment
 
@@ -424,3 +425,231 @@ def systematicResampling(weightArray):
         resampledIndex.append(s)
  
     return resampledIndex
+
+class potentialField:
+
+    def __init__(self):
+        # Constants
+        self.K_ATTRACT = 1.0 # Attractive force gain
+        self.K_REPEL = 100.0  # Repulsive force gain
+        self.THRESHOLD = 1.0  # Threshold distance for repulsive force
+        self.MAX_VELOCITY = 1.0 # Maximum velocity for the robot
+        self.RANDOM_PERTURBATION = 0.1  # Random perturbation factor
+        self.DT = 0.1  # Time step
+        self.MAX_ANGULAR_VELOCITY=0.5  # Maximum angular velocity
+        self.ANGLE_GAIN = 1.0  # Gain for angular velocity
+
+    # Define functions for attractive and repulsive forces
+    def attractive_force(self, robot_pos, goal_pos):
+        force = self.K_ATTRACT * (goal_pos - robot_pos)
+        return force
+
+    def repulsive_force(self, robot_pos, obstacle_pos):
+        force = np.zeros(2)
+        for obs in obstacle_pos:
+            distance = np.linalg.norm(robot_pos - obs)
+            if distance < self.THRESHOLD:
+                repulsion = self.K_REPEL * (1.0 / distance - 1.0 / self.THRESHOLD) * (1.0 / (distance**2)) * (robot_pos - obs) / distance
+                force += repulsion
+        return force
+
+    def compute_total_force(self, robot_pos, goal_pos, obstacle_pos):
+        F_attr = self.attractive_force(robot_pos, goal_pos)
+        F_repl = self.repulsive_force(robot_pos, obstacle_pos)
+        F_total = F_attr + F_repl
+        return F_total
+
+    def compute_velocity(self, robot_pos, goal_pos, obstacle_pos, robot_orientation):
+            # Calculate desired direction
+            F_total = self.compute_total_force(robot_pos, goal_pos, obstacle_pos)
+            desired_direction = np.arctan2(F_total[1], F_total[0])
+            
+            # Calculate angular velocity
+            angle_diff = desired_direction - robot_orientation
+            angle_diff = (angle_diff + np.pi) % (2 * np.pi) - np.pi  # Normalize the angle to the range [-pi, pi]
+            angular_velocity = self.ANGLE_GAIN * angle_diff
+
+            # Add random perturbation to avoid local minima
+            perturbation = self.RANDOM_PERTURBATION * (np.random.rand(2) - 0.5)
+            F_total += perturbation
+
+            velocity_x = F_total[0]
+            velocity_y = F_total[1]
+            
+            return velocity_x, velocity_y, angular_velocity
+
+    def limit_angular_velocity(self, angular_velocity, max_ang_vel):
+            if abs(angular_velocity) > max_ang_vel:
+                angular_velocity = np.sign(angular_velocity) * max_ang_vel
+            return angular_velocity
+
+    def limit_velocity(self, velocity_x, velocity_y, max_velocity):
+        speed = np.linalg.norm([velocity_x, velocity_y])
+        if speed > max_velocity:
+            scale = max_velocity / speed
+            velocity_x *= scale
+            velocity_y *= scale
+        return velocity_x, velocity_y
+
+    def get_velocity(self, robot_x, robot_y, goal_x, goal_y, obstacle_pos, robot_orientation=0.0):
+        robot_pos = np.array([robot_x, robot_y])
+        goal_pos = np.array([goal_x, goal_y])
+        velocity_x, velocity_y, angular_velocity = self.compute_velocity(robot_pos, goal_pos, obstacle_pos, robot_orientation)
+        lim_vx, lim_vy = self.limit_velocity(velocity_x, velocity_y, self.MAX_VELOCITY)
+        limit_angular_vel = self.limit_angular_velocity(angular_velocity, self.MAX_ANGULAR_VELOCITY)
+        return lim_vx, lim_vy, limit_angular_vel
+
+
+
+class Node:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.parent = None
+
+class RRT:
+    def __init__(self, start, goal, obstacle_list, rand_area, expand_dis=1.0, goal_sample_rate=5, max_iter=3000):
+        self.start = Node(start[0], start[1])
+        self.end = Node(goal[0], goal[1])
+        self.min_rand = rand_area[0]
+        self.max_rand = rand_area[1]
+        self.expand_dis = expand_dis
+        self.goal_sample_rate = goal_sample_rate
+        self.max_iter = max_iter
+        self.obstacle_list = obstacle_list
+
+    def planning(self):
+        self.node_list = [self.start]
+        for _ in range(self.max_iter):
+            rnd_node = self.get_random_node()
+            nearest_ind = self.get_nearest_node_index(self.node_list, rnd_node)
+            nearest_node = self.node_list[nearest_ind]
+
+            new_node = self.steer(nearest_node, rnd_node, self.expand_dis)
+
+            if self.check_collision(nearest_node, new_node):
+                continue
+
+            self.node_list.append(new_node)
+
+            if self.calc_dist_to_goal(new_node.x, new_node.y) <= self.expand_dis:
+                final_node = self.steer(new_node, self.end, self.expand_dis)
+                if not self.check_collision(new_node, final_node):
+                    return self.generate_final_course(len(self.node_list) - 1)
+
+        return None  # Could not find a path
+
+    def steer(self, from_node, to_node, extend_length=float("inf")):
+        new_node = Node(from_node.x, from_node.y)
+        d, theta = self.calc_distance_and_angle(new_node, to_node)
+        
+        new_node.x += min(extend_length, d) * np.cos(theta)
+        new_node.y += min(extend_length, d) * np.sin(theta)
+        new_node.parent = from_node
+
+        return new_node
+
+    def get_random_node(self):
+        if random.randint(0, 100) > self.goal_sample_rate:
+            rnd = Node(random.uniform(self.min_rand, self.max_rand), random.uniform(self.min_rand, self.max_rand))
+        else:
+            rnd = Node(self.end.x, self.end.y)
+        return rnd
+
+    def get_nearest_node_index(self, node_list, rnd_node):
+        dlist = [(node.x - rnd_node.x) ** 2 + (node.y - rnd_node.y) ** 2 for node in node_list]
+        min_index = dlist.index(min(dlist))
+        return min_index
+
+    def check_collision_single_point(self, x, y):
+        if x < self.min_rand:
+            return True
+        elif x > self.max_rand:
+            return True
+        if y < self.min_rand:
+            return True
+        elif y > self.max_rand:
+            return True
+
+        for (ox, oy, size) in self.obstacle_list:
+            dx = ox - x
+            dy = oy - y
+            d = dx * dx + dy * dy
+            if d <= size ** 2:
+                return True # in collision
+        return False # Safe
+
+    def check_collision(self, start_node, end_node):
+
+        discretization_constant = 0.1
+        distance = np.sqrt((start_node.x - end_node.x)**2 + (start_node.y - end_node.y)**2)
+        steps = np.arange(0, distance, step=discretization_constant)
+        num_steps = len(steps)
+        
+        for step_num in range(num_steps): 
+            x = start_node.x + step_num * (end_node.x - start_node.x) / distance
+            y = start_node.y + step_num * (end_node.y - start_node.y) / distance
+            if self.check_collision_single_point(x, y):
+                return True # in collision
+            
+        return False  # Safe
+
+    def calc_dist_to_goal(self, x, y):
+        dx = x - self.end.x
+        dy = y - self.end.y
+        return np.hypot(dx, dy)
+
+    def generate_final_course(self, goal_ind):
+        path = [[self.end.x, self.end.y]]
+        node = self.node_list[goal_ind]
+        while node.parent is not None:
+            path.append([node.x, node.y])
+            node = node.parent
+        path.append([node.x, node.y])
+        return path
+
+    @staticmethod
+    def calc_distance_and_angle(from_node, to_node):
+        dx = to_node.x - from_node.x
+        dy = to_node.y - from_node.y
+        d = np.hypot(dx, dy)
+        theta = np.arctan2(dy, dx)
+        return d, theta
+
+def calculate_velocities(path, dt=0.1):
+    velocities = []
+    for i in range(len(path) - 1):
+        x0, y0 = path[i]
+        x1, y1 = path[i + 1]
+        
+        linear_velocity_x = (x1 - x0) / dt
+        linear_velocity_y = (y1 - y0) / dt
+        
+        angle = np.arctan2(y1 - y0, x1 - x0)
+        if i == 0:
+            prev_angle = angle
+        angular_velocity = (angle - prev_angle) / dt
+        prev_angle = angle
+        
+        velocities.append((linear_velocity_x, linear_velocity_y, angular_velocity))
+    
+    return velocities
+
+def rrt_planning(robot_x, robot_y, goal_x, goal_y, obstacles=None):
+    if obstacles is None:
+        obstacles = []
+
+    rrt = RRT(start=[robot_x, robot_y], goal=[goal_x, goal_y],
+              obstacle_list=obstacles, rand_area=[-2, 15])
+    
+    path = rrt.planning()
+    
+    if path is None:
+        print("Cannot find path")
+        return [], []
+
+    velocities = calculate_velocities(path)
+
+    return velocities, path # Velocities (x, y, angular)
+
+
