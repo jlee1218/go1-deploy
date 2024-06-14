@@ -697,6 +697,7 @@ try:
                 # --- Compute control ---
                 if counter % 1 == 0:
                     obstacle_radius = 0.2
+                    use_potential = False 
                     for i in range(10):
                         random.seed(13) # to prevent too much jitteriness
                         current_plan_counter = 0 
@@ -705,23 +706,24 @@ try:
                         velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
                                                         robot_y=CURRENT_POSE[1], 
                                                         robot_theta=CURRENT_POSE[2],
-                                                        goal_x=1, 
-                                                        goal_y=1, 
+                                                        goal_x=0, 
+                                                        goal_y=0, 
                                                         obstacles=obstacles_position_dict.values())
                         if len(path) == 0:
                             # path not found - decrease obstacle size 
                             obstacle_radius = obstacle_radius * 0.9 
                         else: 
                             break 
-                            
-        
-
-
-
-                x_velocity = velocities[current_plan_counter][0]
-                y_velocity = velocities[current_plan_counter][1]
-                r_velocity = velocities[current_plan_counter][2]
-                current_plan_counter += 1
+                if len(velocities) == 0 or use_potential: 
+                    use_potential = True   
+                    potential = potentialField()
+                    print("No path found, use direct velocity")
+                    x_velocity, y_velocity, r_velocity = potential.get_velocity(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0, obstacles_position_dict.values(), CURRENT_POSE[2])
+                else: 
+                    x_velocity = velocities[current_plan_counter][0]
+                    y_velocity = velocities[current_plan_counter][1]
+                    r_velocity = velocities[current_plan_counter][2]
+                    current_plan_counter += 1
 
                 print(f"Velocities: {x_velocity}, {y_velocity}, {r_velocity}")
 
