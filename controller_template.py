@@ -18,7 +18,7 @@ from scipy.stats import multivariate_normal
 import math 
 
 # import spatialmath as sm  # TODO: REMOVE
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 """
 Methodology: 
@@ -44,9 +44,9 @@ class LocalizationFilter_theta:
         # Parameters to change
         self.grid_size = [[-0.58, 2.93], [-1.175, 1.175], [0, 2*np.pi]] # [[x start, x end], [y start, y end], [theta start, theta end]]
         motion_var = 0.35
-        motion_theta_var = 1e-2
+        motion_theta_var = np.deg2rad(50)
         obs_var = 0.15
-        obs_theta_var = 0.21875
+        obs_theta_var = np.deg2rad(2) #0.21875
 
         self.motion_mean = np.array([0, 0, 0])   # observation noise mean 
         self.motion_cov = np.array([[motion_var, 0, 0],  # observation noise covariance
@@ -99,7 +99,7 @@ class LocalizationFilter_theta:
         all_noise = np.random.multivariate_normal(self.motion_mean, self.motion_cov, size=self.num_particles)
         self.particles = np.array(self.particles) + np.array(delta_action).reshape((1, -1)) + all_noise
 
-        self.particles[:, 2] = self.particles[:, 2] % (2*np.pi)
+        self.particles[:, 2] = self.wrap_angle(self.particles[:, 2]) #self.particles[:, 2] % (2*np.pi)
 
         # INEFFICIENT: but working 
         # for particle_num in range(len(self.particles)): 
@@ -119,8 +119,8 @@ class LocalizationFilter_theta:
         """
 
         # theta wrap around 
-        self.particles[:, 2] = self.particles[:, 2] % (2*np.pi)
-        estimated_robot_position[2] = estimated_robot_position[2] % (2*np.pi)
+        self.particles[:, 2] = self.wrap_angle(self.particles[:, 2]) 
+        # estimated_robot_position[2] = self.wrap_angle(estimated_robot_position[2]) 
 
         pdf_normalizer = 1/(((2*np.pi)**(3/2)) *np.sqrt(self.obs_cov_det))
         pdf_exp = -0.5 * np.einsum('ij,ij->i', np.einsum('ik,kj->ij', self.particles - estimated_robot_position.reshape((1, -1)) ,  self.inv_obs_cov), (self.particles - estimated_robot_position.reshape((1, -1))))
@@ -150,22 +150,40 @@ class LocalizationFilter_theta:
 
         if Neff < self.num_particles/3: # resample 
             # first resampling approach - resampling according to the probabilities stored in the weights
-            resampledStateIndex=np.random.choice(np.arange(self.num_particles), self.num_particles, p=self.particle_weights, replace=True)
+            resampledStateIndex=np.random.choice(np.arange(self.num_particles), self.num_particles-500, p=self.particle_weights, replace=True)
+            new_particles = list(self.particles[resampledStateIndex])
+            new_particle_weights = list(self.particle_weights[resampledStateIndex])
+
+            # try sampling from uniform grid
+            for i in range(500):
+                x = np.random.uniform(self.grid_size[0][0], self.grid_size[0][1])
+                y = np.random.uniform(self.grid_size[1][0], self.grid_size[1][1])
+                theta = np.random.uniform(self.grid_size[2][0], self.grid_size[2][1])
+
+                new_particles.append([x, y, theta])
+                new_particle_weights.append(1/self.num_particles)
 
             # second resampling approach - systematic resampling
             # resampledStateIndex=systematicResampling(self.particle_weights)
 
-            new_particles = self.particles[resampledStateIndex]
-            new_particle_weights = self.particle_weights[resampledStateIndex]
+            new_particles = np.array(new_particles) #self.particles[resampledStateIndex]
+            new_particle_weights = np.array(new_particle_weights) #self.particle_weights[resampledStateIndex]
             # normalize new particle weights
             new_particle_weights = new_particle_weights/np.sum(new_particle_weights)
         
             self.particles = deepcopy(new_particles)
             self.particle_weights = deepcopy(new_particle_weights)
 
+        # CLIP THETA 
+        # self.particles[:, 2] = estimated_robot_position[2]
+
         return
 
     ############## Interface ################
+
+    def wrap_angle(self, angle):
+        wrapped = ( angle + np.pi ) % 2*np.pi - np.pi
+        return wrapped
 
     def get_robot_position(self): 
         """
@@ -174,7 +192,7 @@ class LocalizationFilter_theta:
         pos = np.array([0.0, 0.0, 0.0])
         for particle_num in range(len(self.particles)): 
             pos += self.particles[particle_num] * self.particle_weights[particle_num]
-        pos[2] = pos[2] % (2*np.pi)
+        # pos[2] = self.wrap_angle(pos[2])
         return pos 
         # return np.mean(self.particles*self.particle_weights.reshape((-1, 1)), axis=0)
 
@@ -229,10 +247,10 @@ class potentialField:
 
     def __init__(self):
         # Constants
-        self.K_ATTRACT = 100.0 # Attractive force gain
-        self.K_REPEL = 10.0  # Repulsive force gain
-        self.THRESHOLD = 1.0  # Threshold distance for repulsive force
-        self.MAX_VELOCITY = 1.0 # Maximum velocity for the robot
+        self.K_ATTRACT = 10.0 # Attractive force gain
+        self.K_REPEL = 1.0  # Repulsive force gain
+        self.THRESHOLD = 0.3  # Threshold distance for repulsive force
+        self.MAX_VELOCITY = 0.6 # Maximum velocity for the robot
         self.RANDOM_PERTURBATION = 0.1  # Random perturbation factor
         self.DT = 0.1  # Time step
         self.MAX_ANGULAR_VELOCITY=0.5  # Maximum angular velocity
@@ -680,11 +698,16 @@ MIN_LOOP_DURATION = 0.1
 TO_PLOT = False
 
 TAGS_POSES = {
+    # 1: (-0.58, 0, 0),
+    # 2: (0.32, 1.175, 3*np.pi/2),
+    # 3: (2.03, 1.175, 3*np.pi/2),
+    # 4: (2.93, 0, np.pi),
+    # 5: (2.03, -1.175, np.pi/2),
+    # 6: (0.32, -1.175, np.pi/2),
     1: (-0.58, 0, 0),
     2: (0.32, 1.175, 3*np.pi/2),
-    3: (2.03, 1.175, 3*np.pi/2),
-    # 3: (-0.58, 0, 0),
-    4: (2.93, 0, np.pi),
+    # 3: (2.03, 1.175, 3*np.pi/2),
+    3: (2.93, 0, np.pi),
     5: (2.03, -1.175, np.pi/2),
     6: (0.32, -1.175, np.pi/2),
     # 9: (1, 1,  3*np.pi/2)
@@ -716,12 +739,12 @@ image_height = 480
 # --------- CHANGE THIS PART (optional) ---------
 
 USERRT = False
-numParticles = 4000
+numParticles = 8000
 particleFilterTheta = LocalizationFilter_theta(init_robot_position=[0, 0, 0], num_particles=numParticles)
 
 # TODO: PLOTS
-# fig, ax = plt.subplots()
-# scat = ax.scatter(particleFilterTheta.particles[:, 0], particleFilterTheta.particles[:, 1], c=particleFilterTheta.particle_weights, cmap='viridis')
+fig, ax = plt.subplots()
+scat = ax.scatter(particleFilterTheta.particles[:, 0], particleFilterTheta.particles[:, 1], c=particleFilterTheta.particle_weights, cmap='viridis')
 
 pipeline = rs.pipeline()
 config = rs.config()
@@ -914,6 +937,10 @@ try:
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
 
+            if pose is not None:
+                print(f'OBS: \t{yaw} \t\tFILT: \t{CURRENT_POSE[2]}')
+
+
             # if pose is not None:
             #     print(f"Current Pose: {CURRENT_POSE}\t Obs: {pose} \t {yaw}")
             # else:
@@ -933,6 +960,7 @@ try:
                     use_potential = False 
                     for i in range(10):
                         random.seed(13) # to prevent too much jitteriness
+                        np.random.seed(13)
                         current_plan_counter = 0 
                         obstacles = obstacles_position_dict.values()
                         obstacles = [(x, y, obstacle_radius) for x, y in obstacles]
@@ -947,6 +975,7 @@ try:
                             obstacle_radius = obstacle_radius * 0.9 
                             velocities = deepcopy(velocities)
                         else: 
+                            plot_path(path, obstacles, start=[CURRENT_POSE[0], CURRENT_POSE[1]], goal=[0,0])
                             old_velocities = velocities 
                             break 
                 else: 
@@ -973,8 +1002,11 @@ try:
 
                 x_velocity = v_robot[0]
                 y_velocity = v_robot[1]
+                r_velocity = 0 #- r_velocity
 
-                print(f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}")
+                # print(
+                #     f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}\t {CURRENT_POSE[0]} \t {CURRENT_POSE[1]}\t {CURRENT_POSE[2]}"
+                # )
             #     ...
 
             # --- Send control to the walking policy ---
