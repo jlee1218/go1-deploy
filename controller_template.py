@@ -937,8 +937,8 @@ try:
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
 
-            if pose is not None:
-                print(f'OBS: \t{yaw} \t\tFILT: \t{CURRENT_POSE[2]}')
+            # if pose is not None:
+            #     print(f'OBS: \t{yaw} \t\tFILT: \t{CURRENT_POSE[2]}')
 
 
             # if pose is not None:
@@ -1002,11 +1002,11 @@ try:
 
                 x_velocity = v_robot[0]
                 y_velocity = v_robot[1]
-                r_velocity = 0 #- r_velocity
+                r_velocity = - r_velocity
 
-                # print(
-                #     f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}\t {CURRENT_POSE[0]} \t {CURRENT_POSE[1]}\t {CURRENT_POSE[2]}"
-                # )
+                print(
+                    f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}\t {CURRENT_POSE[0]} \t {CURRENT_POSE[1]}\t {CURRENT_POSE[2]}"
+                )
             #     ...
 
             # --- Send control to the walking policy ---
