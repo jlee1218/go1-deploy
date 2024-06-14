@@ -9,10 +9,9 @@ import time
 import numpy as np
 import cv2
 import pyrealsense2 as rs
-
+from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_pose_from_tags, rotation_matrix_to_euler
 
 CONNECT_SERVER = False  # False for local tests, True for deployment
-
 
 # ----------- DO NOT CHANGE THIS PART -----------
 
@@ -24,7 +23,7 @@ SERVER_IP = "192.168.123.14"
 SERVER_PORT = 9292
 
 # Maximum duration of the task (seconds):
-TIMEOUT = 180
+TIMEOUT = 1000000
 
 # Minimum control loop duration:
 MIN_LOOP_DURATION = 0.1
@@ -102,8 +101,10 @@ arucoParams.markerBorderBits = 1
 RECORD = False
 history = []
 
-# ----------------- CONTROLLER -----------------
+# OUR VARS
+obstacles_position_dict = {}
 
+# ----------------- CONTROLLER -----------------
 try:
     # We create a TCP socket to talk to the Jetson at IP 192.168.123.14, which runs our walking policy:
 
@@ -131,14 +132,13 @@ try:
                 time.sleep(MIN_LOOP_DURATION - (now - previous_time_stamp))
 
             # ---------- CHANGE THIS PART (optional) ----------
-
             # Wait for a coherent pair of frames: depth and color
             frames = pipeline.wait_for_frames()
             depth_frame = frames.get_depth_frame()
             color_frame = frames.get_color_frame()
 
             # Get IMU Frames
-            # for frame in frames: 
+            # for frame in frames:
             #     if frame.is_motion_frame():
             #         imu_data = frame.as_motion_frame().get_motion_data()
             #         if frame.get_profile().stream_type() == rs.stream.accel:
@@ -146,8 +146,7 @@ try:
             #         elif frame.get_profile().stream_type() == rs.stream.gyro:
             #             print("Gyroscope data:", imu_data)
 
-
-            if not depth_frame or not color_frame: 
+            if not depth_frame or not color_frame:
                 continue
 
             if RECORD:
@@ -163,46 +162,61 @@ try:
             # print(f"Accelerometer: {accel_frame}")
             # print(f"Gyroscope: {gyro_frame}")
 
-            # --------------- CHANGE THIS PART ---------------
-
             # --- Detect markers ---
-
             # Markers detection:
             grey_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
             (detected_corners, detected_ids, rejected) = cv2.aruco.detectMarkers(grey_frame, aruco_dict, parameters=arucoParams)
 
             # print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
-            
 
             if detected_ids is not None:
                 # Estimate pose of each marker
                 rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
-                
-                detected_april_tags = {key[0]: [val1, val2] for key, val1, val2 in zip(detected_ids, tvecs, rvecs)}
 
-                print(detected_april_tags)
+                for id, tvec, rvec in zip(detected_ids, tvecs, rvecs):
+                    x = tvec[0][2]
+                    y = -tvec[0][0]
+                    theta = rvec[0][1]
+
+                    if(id[0] == 4 or id[0] == 8):
+                        y = -y
+                        theta = -theta
+
+                # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
+                detected_april_tags = {id[0]: [[x,y],[theta]]}
+                # print(detected_april_tags)
+
+                # pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
+                # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
 
                 # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
-                #     # # Draw the marker
-                #     # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
-                #     # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+                    # # Draw the marker
+                    # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
+                    # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
 
-                #     # Print the pose of the marker
-                #     print(f"Detected ID: {id}")
-                #     print(f"Translation Vector (tvec): {tvec}")
-                #     print(f"Rotation Vector (rvec): {rvec}")
+                    # Print the pose of the marker
+                    # print(f"Detected ID: {id}")
+                    # print(f"Translation Vector (tvec): {tvec}")
+                    # print(f"Rotation Vector (rvec): {rvec}")
+                    
+                    # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
+
+            # ---- FILTER STUFF ----
 
 
-
+            # ---- OBSTACLES -----
+            CURRENT_POSE = ([1, 0], [-np.pi/2])
+            if detected_ids is not None:
+                obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
+                print(obstacles_position_dict)
+            
 
             # --- Compute control ---
-
             x_velocity = 0.0
             y_velocity = 0.0
             r_velocity = 0.0
 
             # --- Send control to the walking policy ---
-
             send(s, x_velocity, y_velocity, r_velocity)
 
         print(f"End of main loop.")
