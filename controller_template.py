@@ -13,224 +13,6 @@ from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_po
 import numpy as np
 import random
 
-CONNECT_SERVER = False  # False for local tests, True for deployment
-
-# ----------- DO NOT CHANGE THIS PART -----------
-
-# The deploy.py script runs on the Jetson Nano at IP 192.168.123.14
-# and listens on port 9292
-# whereas this script runs on one of the two other Go1's Jetson Nano
-
-SERVER_IP = "192.168.123.14"
-SERVER_PORT = 9292
-
-# Maximum duration of the task (seconds):
-TIMEOUT = 1000000
-
-# Minimum control loop duration:
-MIN_LOOP_DURATION = 0.1
-
-
-# Use this function to send commands to the robot:
-def send(sock, x, y, r):
-    """
-    Send a command to the robot.
-
-    :param sock: TCP socket
-    :param x: forward velocity (between -1 and 1)
-    :param y: side velocity (between -1 and 1)
-    :param r: yaw rate (between -1 and 1)
-    """
-    data = struct.pack('<hfff', code, x, y, r)
-    if sock is not None:
-        sock.sendall(data)
-
-
-# Fisheye camera (distortion_model: narrow_stereo):
-
-image_width = 640
-image_height = 480
-
-# --------- CHANGE THIS PART (optional) ---------
-
-pipeline = rs.pipeline()
-config = rs.config()
-
-# Get device product line for setting a supporting resolution
-pipeline_wrapper = rs.pipeline_wrapper(pipeline)
-pipeline_profile = config.resolve(pipeline_wrapper)
-device = pipeline_profile.get_device()
-device_product_line = str(device.get_info(rs.camera_info.product_line))
-
-found_rgb = False
-for s in device.sensors:
-    if s.get_info(rs.camera_info.name) == 'RGB Camera':
-        found_rgb = True
-        break
-if not found_rgb:
-    print("Could not find a depth camera with color sensor")
-    exit(0)
-
-# Depht available FPS: up to 90Hz
-config.enable_stream(rs.stream.depth, image_width, image_height, rs.format.z16, 30)
-# RGB available FPS: 30Hz
-config.enable_stream(rs.stream.color, image_width, image_height, rs.format.bgr8, 30)
-# # Accelerometer available FPS: {63, 250}Hz
-# config.enable_stream(rs.stream.accel, rs.format.motion_xyz32f, 250)
-# # Gyroscope available FPS: {200,400}Hz
-# config.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, 200)
-
-# Start streaming
-profile = pipeline.start(config)
-
-intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
-camera_matrix = np.array([[intr.fx, 0, intr.ppx],
-                          [0, intr.fy, intr.ppy],
-                          [0, 0, 1]])
-dist_coeffs = np.zeros((5, 1))  # Assuming no lens distortion
-
-marker_length = 0.147
-
-
-# ----------- DO NOT CHANGE THIS PART -----------
-
-aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
-
-
-arucoParams = cv2.aruco.DetectorParameters_create()
-arucoParams.markerBorderBits = 1
-
-RECORD = False
-history = []
-
-# OUR VARS
-obstacles_position_dict = {}
-
-# ----------------- CONTROLLER -----------------
-try:
-    # We create a TCP socket to talk to the Jetson at IP 192.168.123.14, which runs our walking policy:
-
-    print("Client connecting...")
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-
-        if CONNECT_SERVER:
-            s.connect((SERVER_IP, SERVER_PORT))
-            print("Connected.")
-        else:
-            s = None
-
-        code = 1  # 1 for velocity commands
-
-        task_complete = False
-        start_time = time.time()
-        previous_time_stamp = start_time
-
-        # main control loop:
-        while not task_complete and not time.time() - start_time > TIMEOUT:
-
-            # avoid busy loops:
-            now = time.time()
-            if now - previous_time_stamp < MIN_LOOP_DURATION:
-                time.sleep(MIN_LOOP_DURATION - (now - previous_time_stamp))
-
-            # ---------- CHANGE THIS PART (optional) ----------
-            # Wait for a coherent pair of frames: depth and color
-            frames = pipeline.wait_for_frames()
-            depth_frame = frames.get_depth_frame()
-            color_frame = frames.get_color_frame()
-
-            # Get IMU Frames
-            # for frame in frames:
-            #     if frame.is_motion_frame():
-            #         imu_data = frame.as_motion_frame().get_motion_data()
-            #         if frame.get_profile().stream_type() == rs.stream.accel:
-            #             print("Accelerometer data:", imu_data)
-            #         elif frame.get_profile().stream_type() == rs.stream.gyro:
-            #             print("Gyroscope data:", imu_data)
-
-            if not depth_frame or not color_frame:
-                continue
-
-            if RECORD:
-                history.append((depth_frame, color_frame))
-
-            # Convert images to numpy arrays
-            depth_image = np.asanyarray(depth_frame.get_data())
-            color_image = np.asanyarray(color_frame.get_data())
-
-            # # Get IMU data
-            # accel_data = accel_frame.as_motion_frame().get_motion_data()
-            # gyro_data = gyro_frame.as_motion_frame().get_motion_data()
-            # print(f"Accelerometer: {accel_frame}")
-            # print(f"Gyroscope: {gyro_frame}")
-
-            # --- Detect markers ---
-            # Markers detection:
-            grey_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-            (detected_corners, detected_ids, rejected) = cv2.aruco.detectMarkers(grey_frame, aruco_dict, parameters=arucoParams)
-
-            # print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
-
-            if detected_ids is not None:
-                # Estimate pose of each marker
-                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
-
-                for id, tvec, rvec in zip(detected_ids, tvecs, rvecs):
-                    x = tvec[0][2]
-                    y = -tvec[0][0]
-                    theta = rvec[0][1]
-
-                    if(id[0] == 4 or id[0] == 8):
-                        y = -y
-                        theta = -theta
-
-                # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
-                detected_april_tags = {id[0]: [[x,y],[theta]]}
-                # print(detected_april_tags)
-
-                # pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
-                # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
-
-                # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
-                    # # Draw the marker
-                    # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
-                    # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
-
-                    # Print the pose of the marker
-                    # print(f"Detected ID: {id}")
-                    # print(f"Translation Vector (tvec): {tvec}")
-                    # print(f"Rotation Vector (rvec): {rvec}")
-                    
-                    # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
-
-            # ---- FILTER STUFF ----
-
-
-            # ---- OBSTACLES -----
-            CURRENT_POSE = ([1, 0], [-np.pi/2])
-            if detected_ids is not None:
-                obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
-                print(obstacles_position_dict)
-            
-
-            # --- Compute control ---
-            x_velocity = 0.0
-            y_velocity = 0.0
-            r_velocity = 0.0
-
-            # --- Send control to the walking policy ---
-            send(s, x_velocity, y_velocity, r_velocity)
-
-        print(f"End of main loop.")
-
-        if RECORD:
-            import pickle as pkl
-            with open("frames.pkl", 'wb') as f:
-                pkl.dump(frames, f)
-finally:
-    # Stop streaming
-    pipeline.stop()
-
 import numpy as np 
 from copy import deepcopy 
 from scipy.stats import multivariate_normal
@@ -258,11 +40,13 @@ class LocalizationFilter_theta:
         self.particle_weights = None 
 
         # Parameters to change
-        self.grid_size = [[-5, 5], [-5, 5], [0, 2*np.pi]] # [[x start, x end], [y start, y end], [theta start, theta end]]
+        self.grid_size = [[-0.58, 2.93], [-1.175, 1.175], [0, 2*np.pi]] # [[x start, x end], [y start, y end], [theta start, theta end]]
+        motion_var = 0.35
+        motion_theta_var = 1e-2
+        obs_var = 0.15
+        obs_theta_var = 0.21875
 
         self.motion_mean = np.array([0, 0, 0])   # observation noise mean 
-        motion_var = 1e-2
-        motion_theta_var = 1e-5
         self.motion_cov = np.array([[motion_var, 0, 0],  # observation noise covariance
                                  [0, motion_var, 0], 
                                  [0, 0, motion_theta_var]])
@@ -270,8 +54,6 @@ class LocalizationFilter_theta:
         self.inv_motion_cov = np.linalg.inv(self.motion_cov)
 
         self.obs_mean = np.array([0, 0, 0])   # observation noise mean 
-        obs_var = 2
-        obs_theta_var = 0.01
         self.obs_cov = np.array([[obs_var, 0, 0],  # observation noise covariance
                                  [0, obs_var, 0], 
                                  [0, 0, obs_theta_var]])
@@ -631,7 +413,7 @@ class RRT:
         theta = np.arctan2(dy, dx)
         return d, theta
 
-def calculate_velocities(path, dt=0.1):
+def calculate_velocities(path, initial_theta, dt=0.1):
     velocities = []
     for i in range(len(path) - 1):
         x0, y0 = path[i]
@@ -642,7 +424,7 @@ def calculate_velocities(path, dt=0.1):
         
         angle = np.arctan2(y1 - y0, x1 - x0)
         if i == 0:
-            prev_angle = angle
+            prev_angle = initial_theta
         angular_velocity = (angle - prev_angle) / dt
         prev_angle = angle
         
@@ -650,7 +432,7 @@ def calculate_velocities(path, dt=0.1):
     
     return velocities
 
-def rrt_planning(robot_x, robot_y, goal_x, goal_y, obstacles=None):
+def rrt_planning(robot_x, robot_y, robot_theta, goal_x, goal_y, obstacles=None):
     if obstacles is None:
         obstacles = []
 
@@ -663,8 +445,250 @@ def rrt_planning(robot_x, robot_y, goal_x, goal_y, obstacles=None):
         print("Cannot find path")
         return [], []
 
-    velocities = calculate_velocities(path)
+    velocities = calculate_velocities(path, robot_theta)
 
     return velocities, path # Velocities (x, y, angular)
 
+################################### OUR CODE ABOVE ############################
+
+CONNECT_SERVER = False  # False for local tests, True for deployment
+
+# ----------- DO NOT CHANGE THIS PART -----------
+
+# The deploy.py script runs on the Jetson Nano at IP 192.168.123.14
+# and listens on port 9292
+# whereas this script runs on one of the two other Go1's Jetson Nano
+
+SERVER_IP = "192.168.123.14"
+SERVER_PORT = 9292
+
+# Maximum duration of the task (seconds):
+TIMEOUT = 1000000
+
+# Minimum control loop duration:
+MIN_LOOP_DURATION = 0.1
+
+
+# Use this function to send commands to the robot:
+def send(sock, x, y, r):
+    """
+    Send a command to the robot.
+
+    :param sock: TCP socket
+    :param x: forward velocity (between -1 and 1)
+    :param y: side velocity (between -1 and 1)
+    :param r: yaw rate (between -1 and 1)
+    """
+    data = struct.pack('<hfff', code, x, y, r)
+    if sock is not None:
+        sock.sendall(data)
+
+
+# Fisheye camera (distortion_model: narrow_stereo):
+
+image_width = 640
+image_height = 480
+
+# --------- CHANGE THIS PART (optional) ---------
+
+numParticles = 4000
+particleFilterTheta = LocalizationFilter_theta(init_robot_position=[0, 0, 0], num_particles=numParticles)
+
+pipeline = rs.pipeline()
+config = rs.config()
+
+# Get device product line for setting a supporting resolution
+pipeline_wrapper = rs.pipeline_wrapper(pipeline)
+pipeline_profile = config.resolve(pipeline_wrapper)
+device = pipeline_profile.get_device()
+device_product_line = str(device.get_info(rs.camera_info.product_line))
+
+found_rgb = False
+for s in device.sensors:
+    if s.get_info(rs.camera_info.name) == 'RGB Camera':
+        found_rgb = True
+        break
+if not found_rgb:
+    print("Could not find a depth camera with color sensor")
+    exit(0)
+
+# Depht available FPS: up to 90Hz
+config.enable_stream(rs.stream.depth, image_width, image_height, rs.format.z16, 30)
+# RGB available FPS: 30Hz
+config.enable_stream(rs.stream.color, image_width, image_height, rs.format.bgr8, 30)
+# # Accelerometer available FPS: {63, 250}Hz
+# config.enable_stream(rs.stream.accel, rs.format.motion_xyz32f, 250)
+# # Gyroscope available FPS: {200,400}Hz
+# config.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, 200)
+
+# Start streaming
+profile = pipeline.start(config)
+
+intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+camera_matrix = np.array([[intr.fx, 0, intr.ppx],
+                          [0, intr.fy, intr.ppy],
+                          [0, 0, 1]])
+dist_coeffs = np.zeros((5, 1))  # Assuming no lens distortion
+
+marker_length = 0.147
+
+
+# ----------- DO NOT CHANGE THIS PART -----------
+
+aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+
+
+arucoParams = cv2.aruco.DetectorParameters_create()
+arucoParams.markerBorderBits = 1
+
+RECORD = False
+history = []
+
+# OUR VARS
+obstacles_position_dict = {}
+
+# ----------------- CONTROLLER -----------------
+try:
+    # We create a TCP socket to talk to the Jetson at IP 192.168.123.14, which runs our walking policy:
+
+    print("Client connecting...")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+
+        if CONNECT_SERVER:
+            s.connect((SERVER_IP, SERVER_PORT))
+            print("Connected.")
+        else:
+            s = None
+
+        code = 1  # 1 for velocity commands
+
+        task_complete = False
+        start_time = time.time()
+        previous_time_stamp = start_time
+
+        x_velocity = 0.0
+        y_velocity = 0.0
+        r_velocity = 0.0
+
+        # main control loop:
+        counter = 0 
+        while not task_complete and not time.time() - start_time > TIMEOUT:
+
+            # avoid busy loops:
+            now = time.time()
+            if now - previous_time_stamp < MIN_LOOP_DURATION:
+                time.sleep(MIN_LOOP_DURATION - (now - previous_time_stamp))
+
+            # ---------- CHANGE THIS PART (optional) ----------
+            # Wait for a coherent pair of frames: depth and color
+            frames = pipeline.wait_for_frames()
+            depth_frame = frames.get_depth_frame()
+            color_frame = frames.get_color_frame()
+
+            # Get IMU Frames
+            # for frame in frames:
+            #     if frame.is_motion_frame():
+            #         imu_data = frame.as_motion_frame().get_motion_data()
+            #         if frame.get_profile().stream_type() == rs.stream.accel:
+            #             print("Accelerometer data:", imu_data)
+            #         elif frame.get_profile().stream_type() == rs.stream.gyro:
+            #             print("Gyroscope data:", imu_data)
+
+            if not depth_frame or not color_frame:
+                continue
+
+            if RECORD:
+                history.append((depth_frame, color_frame))
+
+            # Convert images to numpy arrays
+            depth_image = np.asanyarray(depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+
+            # # Get IMU data
+            # accel_data = accel_frame.as_motion_frame().get_motion_data()
+            # gyro_data = gyro_frame.as_motion_frame().get_motion_data()
+            # print(f"Accelerometer: {accel_frame}")
+            # print(f"Gyroscope: {gyro_frame}")
+
+            # --- Detect markers ---
+            # Markers detection:
+            grey_frame = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+            (detected_corners, detected_ids, rejected) = cv2.aruco.detectMarkers(grey_frame, aruco_dict, parameters=arucoParams)
+
+            # print(f"Tags in FOV: {detected_ids}, loc: {detected_corners}")
+
+            if detected_ids is not None:
+                # Estimate pose of each marker
+                rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(detected_corners, marker_length, camera_matrix, dist_coeffs)
+
+                for id, tvec, rvec in zip(detected_ids, tvecs, rvecs):
+                    x = tvec[0][2]
+                    y = -tvec[0][0]
+                    theta = rvec[0][1]
+
+                    if(id[0] == 4 or id[0] == 8):
+                        y = -y
+                        theta = -theta
+
+                # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
+                detected_april_tags = {id[0]: [[x,y],[theta]]}
+                # print(detected_april_tags)
+
+                # pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
+                # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
+
+                # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
+                    # # Draw the marker
+                    # cv2.aruco.drawDetectedMarkers(color_image, detected_corners)
+                    # cv2.aruco.drawAxis(color_image, camera_matrix, dist_coeffs, rvec, tvec, 0.1)
+
+                    # Print the pose of the marker
+                    # print(f"Detected ID: {id}")
+                    # print(f"Translation Vector (tvec): {tvec}")
+                    # print(f"Rotation Vector (rvec): {rvec}")
+                    
+                    # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
+
+            # ---- FILTER STUFF ----
+            x_velocity_worldframe = x_velocity  
+            y_velocity_worldframe = y_velocity
+            r_velocity_worldframe = r_velocity
+            delta_action = [x_velocity*MIN_LOOP_DURATION, y_velocity*MIN_LOOP_DURATION, r_velocity*MIN_LOOP_DURATION]
+            particleFilterTheta.predict_step(delta_action=delta_action)
+
+            # ---- OBSTACLES -----
+            CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
+            if detected_ids is not None:
+                obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
+                print(obstacles_position_dict)
+            
+            if counter > 50: 
+                # --- Compute control ---
+                if counter % 10 == 0:
+                    random.seed(13) # to prevent too much jitteriness
+                    velocities, path = rrt_planning(robot_x=CURRENT_POSE[0], 
+                                                    robot_y=CURRENT_POSE[1], 
+                                                    robot_theta=CURRENT_POSE[2],
+                                                    goal_x=1, 
+                                                    goal_y=1, 
+                                                    obstacles=obstacles_position_dict.values())
+                
+
+                x_velocity = velocities[0][0]
+                y_velocity = velocities[0][1]
+                r_velocity = velocities[0][2]
+
+            # --- Send control to the walking policy ---
+            send(s, x_velocity, y_velocity, r_velocity)
+            counter +=1 
+
+        print(f"End of main loop.")
+
+        if RECORD:
+            import pickle as pkl
+            with open("frames.pkl", 'wb') as f:
+                pkl.dump(frames, f)
+finally:
+    # Stop streaming
+    pipeline.stop()
 
