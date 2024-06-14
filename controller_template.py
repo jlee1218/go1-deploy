@@ -30,12 +30,53 @@ Methodology:
 
 NOTE: add theta later? 
 """
-def is_within_goal_radius(robot_x, robot_y, goal_x, goal_y, r=0.01):
+######################## CONSTANTS ##########################
+USERRT = False
+CONNECT_SERVER = True #True  # False for local tests, True for deployment
+
+SERVER_IP = "192.168.123.14"
+SERVER_PORT = 9292
+
+# Maximum duration of the task (seconds):
+TIMEOUT = 1000000
+START_COUNT = 100
+GOAL_COUNTER = 500
+GOAL_RAD = 0.2
+
+# Minimum control loop duration:
+MIN_LOOP_DURATION = 0.1
+
+TO_PLOT = False
+
+TAGS_POSES = {
+    1: (-0.58, 0, 0),
+    2: (0.32, 1.175, 3*np.pi/2),
+    3: (2.03, 1.175, 3*np.pi/2),
+    4: (2.93, 0, np.pi),
+    5: (2.03, -1.175, np.pi/2),
+    6: (0.32, -1.175, np.pi/2),
+    # 1: (-0.58, 0, 0),
+    # 2: (0.32, 1.175, 3*np.pi/2),
+    # # 3: (2.03, 1.175, 3*np.pi/2),
+    # 3: (2.93, 0, np.pi),
+    # 5: (2.03, -1.175, np.pi/2),
+    # 6: (0.32, -1.175, np.pi/2),
+    # # 9: (1, 1,  3*np.pi/2)
+    # 9: (1, -1,  np.pi/2)
+    # 9: (-0.58, 0,  np.pi/2)
+}
+
+K_ATT = 10
+K_REP = 1
+
+################### FILTER ################
+def is_within_goal_radius(robot_x, robot_y, goal_x, goal_y, r=GOAL_RAD):
     # Calculate the Euclidean distance 
     distance = math.sqrt((robot_x - goal_x) ** 2 + (robot_y - goal_y) ** 2)
     
     # Check if the distance is less than or equal to the radius
     return distance <= r
+
 
 class LocalizationFilter_theta:
     def __init__(self, init_robot_position, 
@@ -50,9 +91,9 @@ class LocalizationFilter_theta:
 
         # Parameters to change
         self.grid_size = [[-0.58, 2.93], [-1.175, 1.175], [0, 2*np.pi]] # [[x start, x end], [y start, y end], [theta start, theta end]]
-        motion_var = 0.35
+        motion_var = 0.20 # 0.35
         motion_theta_var = np.deg2rad(50)
-        obs_var = 0.15
+        obs_var = 0.10 # 0.10
         obs_theta_var = np.deg2rad(2) #0.21875
 
         self.motion_mean = np.array([0, 0, 0])   # observation noise mean 
@@ -211,6 +252,7 @@ class LocalizationFilter_theta:
         self.update_step(estimated_robot_position)
         return self.get_robot_position()
 
+
 ############### Helper Functions ################
 def get_pdf(observed_position, particle_mean, particle_inv_cov, particle_obs_cov_det): 
     """
@@ -250,17 +292,18 @@ def systematicResampling(weightArray):
  
     return resampledIndex
 
+
 class potentialField:
 
     def __init__(self):
         # Constants
-        self.K_ATTRACT = 10.0 # Attractive force gain
-        self.K_REPEL = 1.0  # Repulsive force gain
+        self.K_ATTRACT = K_ATT # Attractive force gain
+        self.K_REPEL = K_REP  # Repulsive force gain
         self.THRESHOLD = 0.3  # Threshold distance for repulsive force
         self.MAX_VELOCITY = 0.6 # Maximum velocity for the robot
         self.RANDOM_PERTURBATION = 0.1  # Random perturbation factor
         self.DT = 0.1  # Time step
-        self.MAX_ANGULAR_VELOCITY=0.5  # Maximum angular velocity
+        self.MAX_ANGULAR_VELOCITY=0.6  # Maximum angular velocity
         self.ANGLE_GAIN = 1.0  # Gain for angular velocity
 
     # Define functions for attractive and repulsive forces
@@ -303,7 +346,11 @@ class potentialField:
             return velocity_x, velocity_y, angular_velocity
 
     def limit_angular_velocity(self, angular_velocity, max_ang_vel):
-            if abs(angular_velocity) > max_ang_vel:
+            if abs(angular_velocity) < 0.05: 
+                return 0 
+            elif abs(angular_velocity) < 0.5: 
+                return np.sign(angular_velocity) * 0.51
+            else: 
                 angular_velocity = np.sign(angular_velocity) * max_ang_vel
             return angular_velocity
 
@@ -322,6 +369,7 @@ class potentialField:
         lim_vx, lim_vy = self.limit_velocity(velocity_x, velocity_y, self.MAX_VELOCITY)
         limit_angular_vel = self.limit_angular_velocity(angular_velocity, self.MAX_ANGULAR_VELOCITY)
         return lim_vx, lim_vy, limit_angular_vel
+
 
 def plot_path(path, obstacles, start, goal):
     plt.figure()
@@ -355,11 +403,13 @@ class Node:
         self.y = y
         self.parent = None
 
+
 class Node:
     def __init__(self, x, y):
         self.x = x
         self.y = y
         self.parent = None
+
 
 class RRT:
     def __init__(self, start, goal, obstacle_list, rand_area, expand_dis=0.1, goal_sample_rate=5, max_iter=3000):
@@ -473,6 +523,7 @@ class RRT:
         theta = np.arctan2(dy, dx)
         return d, theta
 
+
 def calculate_velocities(path, initial_theta, dt=0.1):
     velocities = []
     for i in range(len(path) - 1):
@@ -491,6 +542,7 @@ def calculate_velocities(path, initial_theta, dt=0.1):
         velocities.append((linear_velocity_x, linear_velocity_y, angular_velocity))
     
     return velocities
+
 
 def rrt_planning(robot_x, robot_y, robot_theta, goal_x, goal_y, obstacles=None):
     if obstacles is None:
@@ -682,47 +734,6 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
 
 
 ################################### OUR CODE ABOVE ############################
-
-
-CONNECT_SERVER = True  # False for local tests, True for deployment
-
-# ----------- DO NOT CHANGE THIS PART -----------
-
-# The deploy.py script runs on the Jetson Nano at IP 192.168.123.14
-# and listens on port 9292
-# whereas this script runs on one of the two other Go1's Jetson Nano
-
-SERVER_IP = "192.168.123.14"
-SERVER_PORT = 9292
-
-# Maximum duration of the task (seconds):
-TIMEOUT = 1000000
-START_COUNT = 5
-
-# Minimum control loop duration:
-MIN_LOOP_DURATION = 0.1
-
-TO_PLOT = False
-
-TAGS_POSES = {
-    # 1: (-0.58, 0, 0),
-    # 2: (0.32, 1.175, 3*np.pi/2),
-    # 3: (2.03, 1.175, 3*np.pi/2),
-    # 4: (2.93, 0, np.pi),
-    # 5: (2.03, -1.175, np.pi/2),
-    # 6: (0.32, -1.175, np.pi/2),
-    1: (-0.58, 0, 0),
-    2: (0.32, 1.175, 3*np.pi/2),
-    # 3: (2.03, 1.175, 3*np.pi/2),
-    3: (2.93, 0, np.pi),
-    5: (2.03, -1.175, np.pi/2),
-    6: (0.32, -1.175, np.pi/2),
-    # 9: (1, 1,  3*np.pi/2)
-    # 9: (1, -1,  np.pi/2)
-    # 9: (-0.58, 0,  np.pi/2)
-
-}
-
 # Use this function to send commands to the robot:
 def send(sock, x, y, r):
     """
@@ -737,44 +748,20 @@ def send(sock, x, y, r):
     if sock is not None:
         sock.sendall(data)
 
-
 # Fisheye camera (distortion_model: narrow_stereo):
 
 image_width = 640
 image_height = 480
 
 # --------- CHANGE THIS PART (optional) ---------
-
-USERRT = False
 numParticles = 8000
 particleFilterTheta = LocalizationFilter_theta(init_robot_position=[0, 0, 0], num_particles=numParticles)
 
-# TODO: PLOTS
-fig, ax = plt.subplots()
-scat = ax.scatter(particleFilterTheta.particles[:, 0], particleFilterTheta.particles[:, 1], c=particleFilterTheta.particle_weights, cmap='viridis')
+# # TODO: PLOTS
+# fig, ax = plt.subplots()
 
 pipeline = rs.pipeline()
 config = rs.config()
-
-# def update_frames(frames):
-#     ax_frame.cla()
-#     for id, frame in frames.items():
-#         sm.base.trplot(frame[0], frame=id, color=frame[1], ax=ax_frame)
-
-#     plt.draw()
-#     plt.pause(0.01)
-
-# if TO_PLOT:
-#     frames_to_plot = {}
-#     fig_frame, ax_frame = plt.subplots()
-
-#     frames_to_plot['world']= (sm.SE3(), 'black')
-#     for id, marker in TAGS_POSES.items():
-#         R = sm.SO3.Ry(marker[2])
-#         T = sm.SE3.Rt(R, [marker[0], marker[1], 0])
-#         frames_to_plot[f'M_{id}'] = (T, 'green')
-
-#     update_frames(frames_to_plot)
 
 # Get device product line for setting a supporting resolution
 pipeline_wrapper = rs.pipeline_wrapper(pipeline)
@@ -813,9 +800,7 @@ marker_length = 0.147
 
 
 # ----------- DO NOT CHANGE THIS PART -----------
-
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
-
 
 arucoParams = cv2.aruco.DetectorParameters_create()
 arucoParams.markerBorderBits = 1
@@ -849,6 +834,7 @@ try:
         y_velocity = 0.0
         r_velocity = 0.0
         velocities = [[0, 0, 0]] * 100000
+        v_robot = [0, 0]
         pose = None 
         yaw = None 
         current_plan_counter = 0 
@@ -910,11 +896,15 @@ try:
                     y = tvec[0][0]
                     theta = -rvec[0][1]
 
-                    if(id[0] == 4 or id[0]==7):
+                    if(id[0]==7):
                         y = -y
                         theta = theta
 
                     if(id[0]==8):
+                        y = -y
+                        theta = -theta +np.pi
+
+                    if(id[0]==4):
                         y = -y
                         theta = -theta +np.pi
 
@@ -943,7 +933,7 @@ try:
 
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
-            if is_within_goal_radius(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0) and counter > 500:
+            if is_within_goal_radius(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0) and counter > GOAL_COUNTER:
                 task_complete = True 
                 continue 
 
@@ -1012,11 +1002,11 @@ try:
 
                 x_velocity = v_robot[0]
                 y_velocity = v_robot[1]
-                r_velocity = - r_velocity
+                r_velocity = r_velocity
 
-                print(
-                    f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}\t {CURRENT_POSE[0]} \t {CURRENT_POSE[1]}\t {CURRENT_POSE[2]}"
-                )
+            print(
+                f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}\t {CURRENT_POSE[0]} \t {CURRENT_POSE[1]}\t {CURRENT_POSE[2]}"
+            )
             #     ...
 
             # --- Send control to the walking policy ---
