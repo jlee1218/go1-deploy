@@ -23,7 +23,7 @@ SERVER_IP = "192.168.123.14"
 SERVER_PORT = 9292
 
 # Maximum duration of the task (seconds):
-TIMEOUT = 180
+TIMEOUT = 1000000
 
 # Minimum control loop duration:
 MIN_LOOP_DURATION = 0.1
@@ -178,13 +178,13 @@ try:
                     y = -tvec[0][0]
                     theta = rvec[0][1]
 
-                    if(id == 4 or id == 8):
+                    if(id[0] == 4 or id[0] == 8):
                         y = -y
                         theta = -theta
 
                 # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
-                detected_april_tags = {key[0]: [tvec[0][2], tvec[0][0], -rvec[0][2]] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
-                print(detected_april_tags)
+                detected_april_tags = {id[0]: [[x,y],[theta]]}
+                # print(detected_april_tags)
 
                 # pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
                 # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
@@ -201,6 +201,15 @@ try:
                     
                     # print(f'Id: {id} \t {rotation_matrix_to_euler(cv2.Rodrigues(rvec)[0])}')
 
+            # ---- FILTER STUFF ----
+
+
+            # ---- OBSTACLES -----
+            CURRENT_POSE = ([1, 0], [-np.pi/2])
+            if detected_ids is not None:
+                obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
+                print(obstacles_position_dict)
+            
 
             # --- Compute control ---
             x_velocity = 0.0

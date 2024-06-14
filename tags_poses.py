@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import cv2
-from spatialmath import *
+# from spatialmath import *
 import matplotlib.pyplot as plt
 #
 # TAGS_POSES = {
@@ -16,10 +16,13 @@ TAGS_POSES = {
     3: (2.03, 1.175, 3*np.pi/2),
     4: (2.93, 0, np.pi),
     5: (2.03, -1.175, np.pi/2),
-    6: (0.32, -1.175, np.pi/2)
+    6: (0.32, -1.175, np.pi/2),
+    # 9: (1, 1,  3*np.pi/2)
+    # 9: (1, -1,  np.pi/2)
+
 }
 
-TO_PLOT = True
+TO_PLOT = False
 
 def euler_to_rotation_matrix(roll, pitch, yaw):
     R_x = np.array([[1, 0, 0],
@@ -78,7 +81,7 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
         # Convert the rotation vector to a rotation matrix
         # tvec, rvec = tag_pose
         # t_cm = tvec[0]  # Translation vector from camera to marker
-        y_cm = tag_pose[1][0] + np.pi
+        y_cm = tag_pose[1][0] # + np.pi
         t_cm = np.append(tag_pose[0][0:2], 0)
         R_cm = euler_to_rotation_matrix(0, 0 , y_cm)
         # R_cm = cv2.Rodrigues(tag_pose[1])[0]
@@ -125,10 +128,10 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
         average_position = accumulated_position / valid_marker_count
         average_yaw = accumulated_orientation / valid_marker_count
 
-        print(f"Average Camera Position (World): {average_position}")
-        print(f"Average Camera Orientation (World): {average_yaw}")
+        # print(f"Average Camera Position (World): {average_position}")
+        # print(f"Average Camera Orientation (World): {average_yaw}")
 
-    return average_position, average_yaw
+    return average_position, average_yaw[0]
 
 
 def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_pose):
@@ -143,7 +146,7 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
 
     # Camera pose in the world frame
     t_wc = np.append(robot_pose[0], 0)
-    R_wc = euler_to_rotation_matrix(0.0, 0.0, robot_pose[1])
+    R_wc = euler_to_rotation_matrix(0.0, 0.0, robot_pose[1][0])
 
     # PLOTS
     if TO_PLOT:
@@ -161,7 +164,7 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
         # R_co = cv2.Rodrigues(rvec_obstacle)[0]  # Rotation matrix from camera to marker
         # t_co = tvec_obstacle[0]  # Translation vector from camera to marker
 
-        y_co = tag_pose[1][0] + np.pi
+        y_co = tag_pose[1][0] # + np.pi
         t_co = np.append(tag_pose[0][0:2], 0)
         R_co = euler_to_rotation_matrix(0, 0, y_co)
 
@@ -177,8 +180,8 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
         obstacle_yaw_world = rotation_matrix_to_euler(R_wo)[2]
         obstacle_position_world = np.array(t_wo[0:2])
 
-        print(f"Obstacle {tag_id} Position (World): {obstacle_position_world}")
-        print(f"Obstacle {tag_id} Orientation YAW (World): {obstacle_yaw_world}")
+        # print(f"Obstacle {tag_id} Position (World): {obstacle_position_world}")
+        # print(f"Obstacle {tag_id} Orientation YAW (World): {obstacle_yaw_world}")
 
         updated_obstacles_poses[tag_id] = obstacle_position_world
 
@@ -261,6 +264,7 @@ def estimate_robot_pose_from_tags_3D(tags_poses: dict):
         print(f"Average Camera Orientation (World): {average_yaw}")
 
     return average_position, average_yaw
+
 
 def test_robot_pose():
     # tags poses measured by camera
