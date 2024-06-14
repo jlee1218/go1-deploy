@@ -18,7 +18,7 @@ from scipy.stats import multivariate_normal
 import math 
 
 # import spatialmath as sm  # TODO: REMOVE
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 """
 Methodology: 
@@ -229,8 +229,8 @@ class potentialField:
 
     def __init__(self):
         # Constants
-        self.K_ATTRACT = 1.0 # Attractive force gain
-        self.K_REPEL = 100.0  # Repulsive force gain
+        self.K_ATTRACT = 100.0 # Attractive force gain
+        self.K_REPEL = 10.0  # Repulsive force gain
         self.THRESHOLD = 1.0  # Threshold distance for repulsive force
         self.MAX_VELOCITY = 1.0 # Maximum velocity for the robot
         self.RANDOM_PERTURBATION = 0.1  # Random perturbation factor
@@ -683,6 +683,7 @@ TAGS_POSES = {
     1: (-0.58, 0, 0),
     2: (0.32, 1.175, 3*np.pi/2),
     3: (2.03, 1.175, 3*np.pi/2),
+    # 3: (-0.58, 0, 0),
     4: (2.93, 0, np.pi),
     5: (2.03, -1.175, np.pi/2),
     6: (0.32, -1.175, np.pi/2),
@@ -714,10 +715,13 @@ image_height = 480
 
 # --------- CHANGE THIS PART (optional) ---------
 
+USERRT = False
 numParticles = 4000
 particleFilterTheta = LocalizationFilter_theta(init_robot_position=[0, 0, 0], num_particles=numParticles)
-fig, ax = plt.subplots()
-scat = ax.scatter(particleFilterTheta.particles[:, 0], particleFilterTheta.particles[:, 1], c=particleFilterTheta.particle_weights, cmap='viridis')
+
+# TODO: PLOTS
+# fig, ax = plt.subplots()
+# scat = ax.scatter(particleFilterTheta.particles[:, 0], particleFilterTheta.particles[:, 1], c=particleFilterTheta.particle_weights, cmap='viridis')
 
 pipeline = rs.pipeline()
 config = rs.config()
@@ -884,9 +888,9 @@ try:
                         y = -y
                         theta = -theta +np.pi
 
-                    if abs(theta) > np.deg2rad(30):
-                        print('IGNORING TAG {id}')
-                        continue
+                    # if abs(theta) > np.deg2rad(30):
+                    #     print(f'IGNORING TAG {id}')
+                    #     continue
 
                     detected_april_tags[id[0]] = [[x,y],[theta]]
                     # print(detected_april_tags)
@@ -905,7 +909,7 @@ try:
             particleFilterTheta.predict_step(delta_action=delta_action)
             if pose is not None: 
                 particleFilterTheta.update_step(estimated_robot_position=np.array([pose[0], pose[1], yaw]))
-            visualize_particles(particles=particleFilterTheta.particles, particle_weights=particleFilterTheta.particle_weights)
+            # visualize_particles(particles=particleFilterTheta.particles, particle_weights=particleFilterTheta.particle_weights)
 
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
@@ -924,10 +928,10 @@ try:
             
             if counter > START_COUNT: # number of steps before compute control
                 # --- Compute control ---
-                if False: #counter % 1 == 0:
-                    obstacle_radius = 0.2
+                if USERRT and counter % 1 == 0:
+                    obstacle_radius = 0.15
                     use_potential = False 
-                    for i in range(2):
+                    for i in range(10):
                         random.seed(13) # to prevent too much jitteriness
                         current_plan_counter = 0 
                         obstacles = obstacles_position_dict.values()
@@ -941,24 +945,36 @@ try:
                         if len(path) == 0:
                             # path not found - decrease obstacle size 
                             obstacle_radius = obstacle_radius * 0.9 
+                            velocities = deepcopy(velocities)
                         else: 
+                            old_velocities = velocities 
                             break 
-                if True: #len(velocities) == 0 or use_potential: 
+                else: 
+                    use_potential = True 
+                    
+                if len(velocities) == 0 or use_potential: 
                     use_potential = True   
                     potential = potentialField()
-                    print("No path found, use direct velocity")
+                    # print("No path found, use direct velocity")
                     x_velocity, y_velocity, r_velocity = potential.get_velocity(CURRENT_POSE[0], CURRENT_POSE[1], 0, 0, obstacles_position_dict.values(), CURRENT_POSE[2])
                     
                     v_robot = R_wc.T @ np.array([x_velocity, y_velocity, 0])
-                    print(f'x velocity: {x_velocity},  y velocity {y_velocity}, rotational {r_velocity}')
-
+                    # print(f'x velocity: {v_robot[0]},  y velocity {v_robot[1]}, rotational {r_velocity}')
+                    # print("pot field")
                 else: 
                     x_velocity = velocities[current_plan_counter][0]
                     y_velocity = velocities[current_plan_counter][1]
                     r_velocity = velocities[current_plan_counter][2]
+
+                    v_robot = R_wc.T @ np.array([x_velocity, y_velocity, 0])
+
                     current_plan_counter += 1
 
-                print(f"Velocities: \t {x_velocity}, \t {y_velocity}, \t {r_velocity}")
+
+                x_velocity = v_robot[0]
+                y_velocity = v_robot[1]
+
+                print(f"Velocities: \t {v_robot[0]}, \t {v_robot[1]}, \t {r_velocity}")
             #     ...
 
             # --- Send control to the walking policy ---
