@@ -9,7 +9,6 @@ import time
 import numpy as np
 import cv2
 import pyrealsense2 as rs
-from tags_poses import TAGS_POSES, update_obstacles_positions, estimate_robot_pose_from_tags, rotation_matrix_to_euler, euler_to_rotation_matrix
 import numpy as np
 import random
 
@@ -18,6 +17,7 @@ from copy import deepcopy
 from scipy.stats import multivariate_normal
 import math 
 
+import spatialmath as sm  # TODO: REMOVE
 import matplotlib.pyplot as plt
 
 """
@@ -300,11 +300,16 @@ class potentialField:
 
 
 def visualize_particles(particles, particle_weights):
-    plt.figure()
-    plt.title("particles")
-    plt.scatter(particles[:, 0], particles[:, 1], c=particle_weights)
-    plt.pause(0.5)
-    plt.close()
+
+    scat.set_offsets(np.c_[particles[:, 0], particles[:, 1]])
+    scat.set_facecolor(plt.cm.viridis(particle_weights))
+    plt.draw()
+    plt.pause(0.0051)
+    # plt.figure()
+    # plt.title("particles")
+    # plt.scatter(particles[:, 0], particles[:, 1], c=particle_weights)
+    # plt.pause(0.5)
+    # plt.close()
     
 
 class Node:
@@ -477,6 +482,20 @@ TIMEOUT = 1000000
 # Minimum control loop duration:
 MIN_LOOP_DURATION = 0.1
 
+TO_PLOT = True
+
+TAGS_POSES = {
+    1: (-0.58, 0, 0),
+    2: (0.32, 1.175, 3*np.pi/2),
+    3: (2.03, 1.175, 3*np.pi/2),
+    4: (2.93, 0, np.pi),
+    5: (2.03, -1.175, np.pi/2),
+    6: (0.32, -1.175, np.pi/2),
+    # 9: (1, 1,  3*np.pi/2)
+    # 9: (1, -1,  np.pi/2)
+    # 9: (-0.58, 0,  np.pi/2)
+
+}
 
 # Use this function to send commands to the robot:
 def send(sock, x, y, r):
@@ -502,9 +521,31 @@ image_height = 480
 
 numParticles = 4000
 particleFilterTheta = LocalizationFilter_theta(init_robot_position=[0, 0, 0], num_particles=numParticles)
+fig, ax = plt.subplots()
+scat = ax.scatter(particleFilterTheta.particles[:, 0], particleFilterTheta.particles[:, 1], c=particleFilterTheta.particle_weights, cmap='viridis')
 
 pipeline = rs.pipeline()
 config = rs.config()
+
+# def update_frames(frames):
+#     ax_frame.cla()
+#     for id, frame in frames.items():
+#         sm.base.trplot(frame[0], frame=id, color=frame[1], ax=ax_frame)
+
+#     plt.draw()
+#     plt.pause(0.01)
+
+# if TO_PLOT:
+#     frames_to_plot = {}
+#     fig_frame, ax_frame = plt.subplots()
+
+#     frames_to_plot['world']= (sm.SE3(), 'black')
+#     for id, marker in TAGS_POSES.items():
+#         R = sm.SO3.Ry(marker[2])
+#         T = sm.SE3.Rt(R, [marker[0], marker[1], 0])
+#         frames_to_plot[f'M_{id}'] = (T, 'green')
+
+#     update_frames(frames_to_plot)
 
 # Get device product line for setting a supporting resolution
 pipeline_wrapper = rs.pipeline_wrapper(pipeline)
@@ -636,18 +677,23 @@ try:
 
                 for id, tvec, rvec in zip(detected_ids, tvecs, rvecs):
                     x = tvec[0][2]
-                    y = -tvec[0][0]
-                    theta = rvec[0][1]
+                    y = tvec[0][0]
+                    theta = -rvec[0][1]
 
-                    if(id[0] == 4 or id[0] == 8):
+                    if(id[0] == 4 or id[0]==7):
                         y = -y
-                        theta = -theta
+                        theta = theta
+
+                    if(id[0]==8):
+                        y = -y
+                        theta = -theta +np.pi
 
                 # detected_april_tags = {key[0]: [tvec, rvec] for key, tvec, rvec in zip(detected_ids, tvecs, rvecs)}
                 detected_april_tags = {id[0]: [[x,y],[theta]]}
                 # print(detected_april_tags)
 
                 pose, yaw = estimate_robot_pose_from_tags(detected_april_tags)
+                # pose = None  # TODO: remove
                 # print(f'Pose: {pose[0]} | {pose[1]} | {yaw}')
 
                 # for id, rvec, tvec in zip(detected_ids, rvecs, tvecs):
@@ -676,12 +722,18 @@ try:
 
             # ---- OBSTACLES -----
             CURRENT_POSE = particleFilterTheta.get_robot_position() #([1, 0], [-np.pi/2])
-            print(f"Current Pose: {CURRENT_POSE}")
+
+            if pose is not None:
+                print(f"Current Pose: {CURRENT_POSE}\t Obs: {pose} \t {yaw}")
+            else:
+                print(f"Current Pose: {CURRENT_POSE}")
             
             R_wc = euler_to_rotation_matrix(0.0, 0.0, CURRENT_POSE[2])
             if detected_ids is not None:
+                # CURRENT_POSE = [1, 0, np.pi/2]
                 obstacles_position_dict = update_obstacles_positions(obstacles_position_dict, detected_april_tags, CURRENT_POSE)
                 print(obstacles_position_dict)
+                ...
             
             if counter > 10000: 
                 # --- Compute control ---
@@ -716,4 +768,174 @@ try:
 finally:
     # Stop streaming
     pipeline.stop()
+
+
+
+# ------------------- POSE ESTIMATION --------------------
+def euler_to_rotation_matrix(roll, pitch, yaw):
+    R_x = np.array([[1, 0, 0],
+                    [0, math.cos(roll), -math.sin(roll)],
+                    [0, math.sin(roll), math.cos(roll)]])
+
+    R_y = np.array([[math.cos(pitch), 0, math.sin(pitch)],
+                    [0, 1, 0],
+                    [-math.sin(pitch), 0, math.cos(pitch)]])
+
+    R_z = np.array([[math.cos(yaw), -math.sin(yaw), 0],
+                    [math.sin(yaw), math.cos(yaw), 0],
+                    [0, 0, 1]])
+
+    R = np.dot(R_z, np.dot(R_y, R_x))
+    return R
+
+
+def rotation_matrix_to_euler(R):
+    sy = math.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
+    singular = sy < 1e-6
+    if not singular:
+        x = math.atan2(R[2, 1], R[2, 2])
+        y = math.atan2(-R[2, 0], sy)
+        z = math.atan2(R[1, 0], R[0, 0])
+    else:
+        x = math.atan2(-R[1, 2], R[1, 1])
+        y = math.atan2(-R[2, 0], sy)
+        z = 0
+    return np.array([x, y, z])
+
+
+def estimate_robot_pose_from_tags(tags_poses: dict):
+    accumulated_position = np.zeros(2)
+    accumulated_orientation = np.zeros(1)
+    valid_marker_count = 0
+
+    average_position = np.zeros(2)
+    average_yaw = np.zeros(1)
+
+    # PLOTS
+    if TO_PLOT:
+        T_w = SE3()
+        T_w.plot(frame='w', color='black')
+
+    for tag_id, tag_pose in tags_poses.items():
+        if tag_id not in TAGS_POSES.keys():
+            continue
+
+        known_pose = TAGS_POSES[tag_id]
+        t_wm = np.append(known_pose[0:2], 0)
+        y_wm = known_pose[2]
+        R_wm = euler_to_rotation_matrix(0,0, y_wm)
+
+
+        # Convert the rotation vector to a rotation matrix
+        # tvec, rvec = tag_pose
+        # t_cm = tvec[0]  # Translation vector from camera to marker
+        y_cm = tag_pose[1][0] # + np.pi
+        t_cm = np.append(tag_pose[0][0:2], 0)
+        R_cm = euler_to_rotation_matrix(0, 0 , y_cm)
+        # R_cm = cv2.Rodrigues(tag_pose[1])[0]
+        # Rotation matrix from camera to marker
+
+        R_mc = R_cm.T
+
+        R_wc = R_wm @ R_mc
+
+        # Marker to camera
+        # t_mc = -R_mc @ t_cm
+        t_mc = t_cm
+
+        # Camera pose in the world coordinate system
+        R_wc = R_wm @ R_mc
+        t_wc = R_wm @ t_mc + t_wm
+
+        # PLOTS
+        if TO_PLOT:
+            T_wm = SE3.Rt(R_wm, t_wm)
+            T_wm.plot(frame='T-wm', color='blue')
+
+            # T_cm = SE3.Rt(R_cm, t_cm)
+            # T_cm.plot(frame='T-cm')
+
+            T_wc = SE3.Rt(R_wc, t_wc)
+            T_wc.plot(frame='T-wc', color='red')
+
+        if TO_PLOT:
+            plt.show(block=False)
+
+        # Convert the rotation matrix to Euler angles
+        camera_yaw_world = rotation_matrix_to_euler(R_wc)[2]
+        camera_position_world = t_wc[0:2]
+
+        accumulated_position += camera_position_world
+        accumulated_orientation += camera_yaw_world
+        valid_marker_count += 1
+
+        # print(f"Camera Position (World): {camera_position_world}")
+        # print(f"Camera Orientation (World): {camera_yaw_world}")
+
+    if valid_marker_count > 0:
+        average_position = accumulated_position / valid_marker_count
+        average_yaw = accumulated_orientation / valid_marker_count
+
+        # print(f"Average Camera Position (World): {average_position}")
+        # print(f"Average Camera Orientation (World): {average_yaw}")
+
+    return average_position, average_yaw[0]
+
+
+def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_pose):
+    """
+
+    :param obstacles_poses: Memory osbtacles dict
+    :param tags_poses: All seen tags 7: {(np.array([[1, 0, 0.0]], dtype=np.float32), np.array([[0, 0, 0]], dtype=np.float32))}
+    :param robot_pose: Current estimated pose (np.array([x, y]), np.array([0.0])
+    :return: updated obstacles dicts {7: np.array([x, y]), 8: ...}
+    """
+    updated_obstacles_poses = obstacles_poses
+
+    # Camera pose in the world frame
+    t_wc = np.append(robot_pose[0:2], 0)
+    R_wc = euler_to_rotation_matrix(0.0, 0.0, robot_pose[2])
+
+    # PLOTS
+    if TO_PLOT:
+        T_w = SE3()
+        T_w.plot(frame='w', color='black')
+        T_wc = SE3.Rt(R_wc, t_wc)
+        T_wc.plot(frame='T-wc', color='blue')
+
+    for tag_id, tag_pose in tags_poses.items():
+        if tag_id in TAGS_POSES.keys():
+            continue
+
+        # Obstacle to camera
+        # tvec_obstacle, rvec_obstacle = tag_pose
+        # R_co = cv2.Rodrigues(rvec_obstacle)[0]  # Rotation matrix from camera to marker
+        # t_co = tvec_obstacle[0]  # Translation vector from camera to marker
+
+        y_co = tag_pose[1][0] # + np.pi
+        t_co= np.append(tag_pose[0][0:2], 0)
+        # t_co = -t_oc
+        R_co = euler_to_rotation_matrix(0, 0, y_co)
+
+        R_wo = R_wc @ R_co
+        t_wo = t_wc + R_wc @ t_co
+
+        # PLOTS
+        if TO_PLOT:
+            T_wo = SE3.Rt(R_wo, t_wo)
+            T_wo.plot(frame=f'T-wo_{tag_id}', color='red')
+
+        # Convert the rotation matrix to Euler angles
+        obstacle_yaw_world = rotation_matrix_to_euler(R_wo)[2]
+        obstacle_position_world = np.array(t_wo[0:2])
+
+        # print(f"Obstacle {tag_id} Position (World): {obstacle_position_world}")
+        # print(f"Obstacle {tag_id} Orientation YAW (World): {obstacle_yaw_world}")
+
+        updated_obstacles_poses[tag_id] = obstacle_position_world
+
+    if TO_PLOT:
+        plt.show(block=False)
+
+    return updated_obstacles_poses
 

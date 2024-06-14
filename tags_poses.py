@@ -1,14 +1,8 @@
 import math
 import numpy as np
 import cv2
-# from spatialmath import *
+from spatialmath import *  # TODO: REMOVE
 import matplotlib.pyplot as plt
-#
-# TAGS_POSES = {
-#     1: [0.0, 0.0],
-#     2: [0.5, 0.5],
-#     3: [0.7, 2]
-# }
 
 TAGS_POSES = {
     1: (-0.58, 0, 0),
@@ -19,11 +13,11 @@ TAGS_POSES = {
     6: (0.32, -1.175, np.pi/2),
     # 9: (1, 1,  3*np.pi/2)
     # 9: (1, -1,  np.pi/2)
-    9: (-0.58, 0,  np.pi/2)
+    # 9: (-0.58, 0,  np.pi/2)
 
 }
 
-TO_PLOT = False
+TO_PLOT = False # TODO: Toggle
 
 def euler_to_rotation_matrix(roll, pitch, yaw):
     R_x = np.array([[1, 0, 0],
@@ -103,10 +97,10 @@ def estimate_robot_pose_from_tags(tags_poses: dict):
         # PLOTS
         if TO_PLOT:
             T_wm = SE3.Rt(R_wm, t_wm)
-            T_wm.plot(frame='T-wm', color='black')
+            T_wm.plot(frame='T-wm', color='blue')
 
-            T_cm = SE3.Rt(R_cm, t_cm)
-            T_cm.plot(frame='T-cm')
+            # T_cm = SE3.Rt(R_cm, t_cm)
+            # T_cm.plot(frame='T-cm')
 
             T_wc = SE3.Rt(R_wc, t_wc)
             T_wc.plot(frame='T-wc', color='red')
@@ -146,7 +140,7 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
     updated_obstacles_poses = obstacles_poses
 
     # Camera pose in the world frame
-    t_wc = np.append(robot_pose[0], 0)
+    t_wc = np.append(robot_pose[0:2], 0)
     R_wc = euler_to_rotation_matrix(0.0, 0.0, robot_pose[2])
 
     # PLOTS
@@ -166,7 +160,8 @@ def update_obstacles_positions(obstacles_poses: dict, tags_poses: dict, robot_po
         # t_co = tvec_obstacle[0]  # Translation vector from camera to marker
 
         y_co = tag_pose[1][0] # + np.pi
-        t_co = np.append(tag_pose[0][0:2], 0)
+        t_co= np.append(tag_pose[0][0:2], 0)
+        # t_co = -t_oc
         R_co = euler_to_rotation_matrix(0, 0, y_co)
 
         R_wo = R_wc @ R_co
