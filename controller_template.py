@@ -298,6 +298,18 @@ class potentialField:
         limit_angular_vel = self.limit_angular_velocity(angular_velocity, self.MAX_ANGULAR_VELOCITY)
         return lim_vx, lim_vy, limit_angular_vel
 
+def plot_path(path, obstacles, start, goal):
+    plt.figure()
+    plt.plot([x for (x, y) in path], [y for (x, y) in path], '-o')
+    plt.plot(start[0], start[1], "xr")
+    plt.plot(goal[0], goal[1], "xr")
+    for (ox, oy, size) in obstacles:
+        circle = plt.Circle((ox, oy), size, color='b', fill=True)
+        plt.gca().add_patch(circle)
+    plt.axis("equal")
+    plt.grid(True)
+    plt.show()
+
 
 def visualize_particles(particles, particle_weights):
     plt.figure()
