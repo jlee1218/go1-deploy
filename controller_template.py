@@ -479,7 +479,7 @@ def rrt_planning(robot_x, robot_y, robot_theta, goal_x, goal_y, obstacles=None):
 
     return velocities, path # Velocities (x, y, angular)
 
-def is_within_goal_radius(robot_x, robot_y, goal_x, goal_y, r=0.05):
+def is_within_goal_radius(robot_x, robot_y, goal_x, goal_y, r=0.01):
     # Calculate the Euclidean distance 
     distance = math.sqrt((robot_x - goal_x) ** 2 + (robot_y - goal_y) ** 2)
     
