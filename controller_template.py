@@ -38,7 +38,7 @@ SERVER_IP = "192.168.123.14"
 SERVER_PORT = 9292
 
 # Maximum duration of the task (seconds):
-TIMEOUT = 1000000
+TIMEOUT = 180
 START_COUNT = 100
 GOAL_COUNTER = 500
 GOAL_RAD = 0.2
